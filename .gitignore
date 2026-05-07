@@ -1,0 +1,14 @@
+# Unrelated files in this folder
+Prompt.docx
+kanji-game.html
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Backups
+*~
+*.bak

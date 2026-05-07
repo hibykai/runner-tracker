@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Coast to Coast Run</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f1422; color: #e8ecf3; overflow: hidden; }
+
+  #app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px; background: linear-gradient(90deg, #131a2e, #1a2342);
+    border-bottom: 1px solid #2a3454;
+  }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; color: #ffd866; }
+  header .tag { color: #8c97b5; font-size: 12px; margin-left: 12px; }
+
+  main { display: block; height: 100%; min-height: 0; }
+
+  /* Floating action buttons (always visible) */
+  #fab-stack {
+    position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 15;
+  }
+  .fab {
+    padding: 12px 18px; background: #ffd866; color: #0f1422; border: none;
+    border-radius: 999px; font-weight: 700; font-size: 14px; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.45); display: flex; align-items: center; gap: 8px;
+  }
+  .fab:hover { background: #ffe28b; transform: translateY(-1px); }
+  .fab.secondary { background: #243057; color: #e8ecf3; border: 1px solid #344371; }
+  .fab.secondary:hover { background: #2e3c6e; }
+
+  /* Slide-in drawer */
+  .drawer-overlay {
+    position: fixed; inset: 0; background: rgba(8,12,24,0.55);
+    z-index: 50; display: none;
+  }
+  .drawer-overlay.open { display: block; }
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100vh; width: 380px; max-width: 100vw;
+    background: #131a2e; border-left: 1px solid #2a3454;
+    transform: translateX(100%); transition: transform 0.28s ease;
+    z-index: 51; overflow-y: auto; padding: 16px;
+    box-shadow: -8px 0 24px rgba(0,0,0,0.4);
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .drawer-header h2 { margin: 0; font-size: 15px; color: #ffd866; text-transform: uppercase; letter-spacing: 0.5px; }
+  .drawer-close { background: transparent; border: none; color: #e8ecf3; font-size: 22px; cursor: pointer; padding: 4px 8px; line-height: 1; }
+  .drawer-close:hover { color: #ffd866; }
+
+  /* Map */
+  #map-wrap { position: relative; background: radial-gradient(ellipse at center, #18213b 0%, #0c1020 100%); overflow: hidden; }
+  #map { width: 100%; height: 100%; display: block; cursor: grab; }
+  #map:active { cursor: grabbing; }
+
+  #map-controls {
+    position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px;
+    background: rgba(20,26,46,0.85); padding: 8px; border-radius: 8px; border: 1px solid #2a3454;
+  }
+  #map-controls button {
+    width: 36px; height: 36px; font-size: 16px; font-weight: 700;
+    background: #243057; color: #e8ecf3; border: 1px solid #344371; border-radius: 6px; cursor: pointer;
+  }
+  #map-controls button:hover { background: #2e3c6e; }
+
+  #map-info {
+    position: absolute; left: 12px; top: 12px;
+    background: rgba(20,26,46,0.85); padding: 10px 12px; border-radius: 8px; border: 1px solid #2a3454;
+    font-size: 12px; max-width: 260px; line-height: 1.5;
+  }
+  #map-info b { color: #ffd866; }
+
+  /* Leaderboard */
+  #leaderboard {
+    position: absolute; top: 16px; right: 16px; width: 280px;
+    background: rgba(15,20,34,0.95); border: 1px solid #344371; border-radius: 10px;
+    padding: 12px; z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  #leaderboard h3 { margin: 0 0 8px; font-size: 13px; color: #ffd866; letter-spacing: 0.5px; text-transform: uppercase; }
+  #leaderboard table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #leaderboard th, #leaderboard td { padding: 6px 4px; text-align: left; border-bottom: 1px solid #243057; }
+  #leaderboard th { color: #8c97b5; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  #leaderboard td:nth-child(1) { width: 28px; color: #ffd866; font-weight: 700; }
+  #leaderboard td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+  #leaderboard tr.winner td { color: #7ee787; font-weight: 700; }
+  #leaderboard .empty { color: #6c7896; font-size: 12px; padding: 12px 4px; text-align: center; }
+  #leaderboard .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+  /* Sidebar */
+  aside {
+    background: #131a2e; border-left: 1px solid #2a3454;
+    overflow-y: auto; padding: 14px;
+  }
+  aside h2 { font-size: 13px; color: #ffd866; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  aside section { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid #243057; }
+  aside section:last-child { border-bottom: none; }
+
+  .roster { display: flex; flex-direction: column; gap: 6px; }
+  .roster-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px;
+    background: #1b2440; border: 1px solid #2a3454; border-radius: 8px; cursor: pointer;
+  }
+  .roster-row.active { border-color: #ffd866; background: #232f55; }
+  .roster-row .mini-avatar { width: 32px; height: 32px; flex-shrink: 0; }
+  .roster-row .info { flex: 1; min-width: 0; }
+  .roster-row .name { font-weight: 600; font-size: 13px; }
+  .roster-row .miles { font-size: 11px; color: #8c97b5; }
+  .roster-row .del { background: transparent; border: none; color: #ff6b6b; cursor: pointer; font-size: 16px; padding: 4px; }
+
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: #8c97b5; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.4px; }
+  .field input[type="text"], .field input[type="number"] {
+    width: 100%; padding: 8px 10px; background: #0f1422; border: 1px solid #344371;
+    border-radius: 6px; color: #e8ecf3; font-size: 14px; font-family: inherit;
+  }
+  .field input:focus { outline: none; border-color: #ffd866; }
+
+  button.primary {
+    width: 100%; padding: 10px; background: #ffd866; color: #0f1422; border: none;
+    border-radius: 6px; font-weight: 700; font-size: 14px; cursor: pointer;
+  }
+  button.primary:hover { background: #ffe28b; }
+  button.primary:disabled { background: #555a6e; color: #8c97b5; cursor: not-allowed; }
+
+  button.secondary {
+    padding: 8px 12px; background: #243057; color: #e8ecf3; border: 1px solid #344371;
+    border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  button.secondary:hover { background: #2e3c6e; }
+
+  /* Avatar customizer */
+  .avatar-preview { display: flex; justify-content: center; margin-bottom: 10px; }
+  .avatar-preview svg { width: 80px; height: 100px; background: #1b2440; border-radius: 8px; padding: 4px; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .swatches .sw {
+    width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent;
+  }
+  .swatches .sw.selected { border-color: #ffd866; }
+
+  /* Date picker */
+  .date-picker-wrap { position: relative; }
+  .date-btn {
+    width: 100%; padding: 8px 10px; background: #0f1422; border: 1px solid #344371;
+    border-radius: 6px; color: #e8ecf3; font-size: 14px; cursor: pointer; text-align: left;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .date-btn:hover { border-color: #ffd866; }
+  .calendar {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+    background: #1b2440; border: 1px solid #344371; border-radius: 8px; padding: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .calendar.hidden { display: none; }
+  .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .cal-header button { background: #243057; border: 1px solid #344371; color: #e8ecf3; border-radius: 4px; cursor: pointer; padding: 4px 8px; }
+  .cal-header .month-label { font-weight: 600; font-size: 13px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-grid .dow { font-size: 10px; color: #8c97b5; text-align: center; padding: 4px 0; }
+  .cal-grid .day {
+    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; background: #0f1422; border: 1px solid transparent;
+    border-radius: 4px; cursor: pointer;
+  }
+  .cal-grid .day:hover { background: #243057; }
+  .cal-grid .day.other { color: #444c66; cursor: default; }
+  .cal-grid .day.other:hover { background: #0f1422; }
+  .cal-grid .day.today { border-color: #344371; }
+  .cal-grid .day.selected { background: #ffd866; color: #0f1422; font-weight: 700; }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #1b2440; border: 1px solid #ffd866; color: #ffd866;
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 100;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+
+  /* Winner banner */
+  #winner-banner {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: linear-gradient(135deg, #ffd866, #ff9d3a);
+    color: #0f1422; padding: 24px 40px; border-radius: 16px; z-index: 1000;
+    text-align: center; box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+    display: none;
+  }
+  #winner-banner.show { display: block; animation: pop 0.5s ease-out; }
+  #winner-banner h2 { margin: 0 0 6px; font-size: 32px; }
+  #winner-banner p { margin: 0 0 14px; font-size: 16px; }
+  #winner-banner button { padding: 8px 18px; background: #0f1422; color: #ffd866; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; }
+  @keyframes pop { 0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; } 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+
+  /* Map SVG styling */
+  .ocean { fill: #0c1735; }
+  .land { fill: #1f2c4d; stroke: #2a3454; stroke-width: 1; }
+  .land-backdrop { fill: #243057; stroke: none; }
+  .state { fill: #243057; stroke: #3a4778; stroke-width: 1; stroke-linejoin: round; stroke-linecap: round; transition: fill 0.2s; }
+  .state:hover { fill: #2e3c6e; }
+  .state-label { fill: #6c7896; font-size: 11px; font-weight: 600; text-anchor: middle; pointer-events: none; user-select: none; }
+  .state-label-abbr { fill: #8c97b5; font-size: 9px; font-weight: 700; text-anchor: middle; pointer-events: none; user-select: none; }
+  .route-line { fill: none; stroke: #ff6b3d; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .route-line.shadow { stroke: #5a1f0a; stroke-width: 5; }
+  .city-dot { fill: #ffd866; stroke: #0f1422; stroke-width: 1.5; }
+  .city-label { fill: #e8ecf3; font-size: 10px; font-weight: 600; pointer-events: none; user-select: none; }
+  .highway-shield { fill: #fff; stroke: #0f1422; stroke-width: 1.5; }
+  .highway-shield-text { fill: #0f1422; font-size: 8px; font-weight: 800; text-anchor: middle; pointer-events: none; }
+  .start-flag, .finish-flag { font-size: 16px; }
+  .mile-marker { fill: #6c7896; font-size: 8px; pointer-events: none; user-select: none; }
+  .player-avatar { cursor: pointer; transition: transform 0.9s cubic-bezier(0.22,1,0.36,1); }
+  .player-name-tag { fill: #fff; font-size: 11px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: #0f1422; stroke-width: 3; pointer-events: none; user-select: none; transition: x 0.9s cubic-bezier(0.22,1,0.36,1), y 0.9s cubic-bezier(0.22,1,0.36,1); }
+
+  /* Detail layer (visible when zoomed) */
+  .detail { opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .detail.visible { opacity: 1; pointer-events: auto; }
+
+  .empty-help { color: #6c7896; font-size: 12px; line-height: 1.5; padding: 12px; background: #1b2440; border-radius: 6px; border: 1px dashed #344371; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div>
+      <h1>COAST TO COAST RUN</h1>
+      <span class="tag">Santa Monica, CA &rarr; New York, NY &middot; 2,790 mi</span>
+    </div>
+    <div style="font-size:12px;color:#8c97b5;">Year <span id="year-label"></span></div>
+  </header>
+
+  <main>
+    <div id="map-wrap">
+      <svg id="map" viewBox="0 0 1600 800" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="map-info">
+        <b>How to play</b><br>
+        Add a player, customize their avatar, then log running miles with a date.
+        Each mile moves the avatar east along the route. First to NYC wins!
+        <div style="margin-top:6px; color:#8c97b5;">Drag to pan &middot; scroll to zoom</div>
+      </div>
+      <div id="map-controls">
+        <button id="zoom-in" title="Zoom in">+</button>
+        <button id="zoom-out" title="Zoom out">&minus;</button>
+        <button id="zoom-reset" title="Reset view">&#8634;</button>
+      </div>
+      <div id="leaderboard">
+        <h3>Leaderboard</h3>
+        <div id="lb-body"></div>
+      </div>
+      <div id="fab-stack">
+        <button class="fab" id="fab-log">🏃 Log Miles</button>
+        <button class="fab secondary" id="fab-manage">👥 Manage Players</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div class="drawer-overlay" id="drawer-overlay"></div>
+<aside class="drawer" id="drawer-log">
+  <div class="drawer-header">
+    <h2>Log Miles</h2>
+    <button class="drawer-close" data-close-drawer>×</button>
+  </div>
+  <div id="drawer-log-body"></div>
+</aside>
+<aside class="drawer" id="drawer-manage">
+  <div class="drawer-header">
+    <h2>Manage Players</h2>
+    <button class="drawer-close" data-close-drawer>×</button>
+  </div>
+  <div id="drawer-manage-body"></div>
+</aside>
+
+<div id="toast"></div>
+<div id="winner-banner">
+  <h2 id="winner-name">Winner!</h2>
+  <p id="winner-msg">reached New York City!</p>
+  <button onclick="document.getElementById('winner-banner').classList.remove('show')">Continue</button>
+</div>
+
+<script>
+/* ======================= STATE & CONSTANTS ======================= */
+
+const STORAGE_KEY = 'c2c_run_v1';
+
+const SKIN_COLORS = ['#f4d4b0', '#e6b994', '#c89570', '#a47148', '#7a4d2c', '#4a2f1a'];
+const CLOTHES_COLORS = ['#e74c3c', '#f39c12', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#ec407a', '#ffffff', '#34495e'];
+const HAT_COLORS = ['none', '#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#34495e', '#ffffff'];
+
+/* ============ PROJECTION ============
+ * Pseudo-Albers / equirectangular hybrid for the lower 48 US.
+ * Compresses longitudes by cos(centerLat) for proper distance proportions.
+ * Output viewBox: 1600 x 900.
+ */
+const PROJ = {
+  lonRef: -96, latRef: 38,
+  scaleY: 30,                                   // px per degree latitude
+  get scaleX() { return this.scaleY * Math.cos(38 * Math.PI / 180); },  // ~23.64
+  offsetX: 800, offsetY: 450
+};
+function project(lon, lat) {
+  return [
+    (lon - PROJ.lonRef) * PROJ.scaleX + PROJ.offsetX,
+    (PROJ.latRef - lat) * PROJ.scaleY + PROJ.offsetY
+  ];
+}
+// Great-circle distance in miles
+function haversineMi(lon1, lat1, lon2, lat2) {
+  const R = 3958.8, toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/* ============ ROUTE ============
+ * Real cities on the Route 66 + I-80 corridor. Distances are actual road miles
+ * (not straight-line) — running 50 miles will move you ~50 mi along the route.
+ */
+const ROUTE_RAW = [
+  { name: "Santa Monica, CA",   lon: -118.49, lat: 34.02, hwy: "Start" },
+  { name: "Los Angeles, CA",    lon: -118.24, lat: 34.05, gap:  16 },
+  { name: "Barstow, CA",        lon: -117.04, lat: 34.90, gap: 113, hwy: "I-40" },
+  { name: "Needles, CA",        lon: -114.61, lat: 34.85, gap: 145 },
+  { name: "Kingman, AZ",        lon: -114.06, lat: 35.19, gap:  72, hwy: "Rte 66" },
+  { name: "Flagstaff, AZ",      lon: -111.65, lat: 35.20, gap: 148, hwy: "Rte 66" },
+  { name: "Holbrook, AZ",       lon: -110.16, lat: 34.90, gap:  90, hwy: "Rte 66" },
+  { name: "Gallup, NM",         lon: -108.74, lat: 35.53, gap:  90 },
+  { name: "Albuquerque, NM",    lon: -106.65, lat: 35.08, gap: 138 },
+  { name: "Tucumcari, NM",      lon: -103.72, lat: 35.17, gap: 174 },
+  { name: "Amarillo, TX",       lon: -101.83, lat: 35.22, gap: 114 },
+  { name: "Oklahoma City, OK",  lon:  -97.52, lat: 35.47, gap: 260, hwy: "I-40" },
+  { name: "Tulsa, OK",          lon:  -95.99, lat: 36.15, gap: 106 },
+  { name: "Joplin, MO",         lon:  -94.51, lat: 37.08, gap: 113 },
+  { name: "St. Louis, MO",      lon:  -90.20, lat: 38.63, gap: 287, hwy: "I-70" },
+  { name: "Springfield, IL",    lon:  -89.65, lat: 39.78, gap:  98 },
+  { name: "Chicago, IL",        lon:  -87.63, lat: 41.88, gap: 200, hwy: "I-80" },
+  { name: "South Bend, IN",     lon:  -86.25, lat: 41.68, gap:  93 },
+  { name: "Toledo, OH",         lon:  -83.55, lat: 41.66, gap: 137 },
+  { name: "Cleveland, OH",      lon:  -81.69, lat: 41.50, gap: 113 },
+  { name: "Pittsburgh, PA",     lon:  -79.99, lat: 40.44, gap: 134, hwy: "I-80" },
+  { name: "Harrisburg, PA",     lon:  -76.88, lat: 40.27, gap: 204 },
+  { name: "Philadelphia, PA",   lon:  -75.16, lat: 39.95, gap: 107 },
+  { name: "New York, NY",       lon:  -74.01, lat: 40.71, gap:  95, hwy: "Finish" }
+];
+// Compute cumulative miles + projected pixel coords at runtime
+const ROUTE = (() => {
+  let mile = 0;
+  return ROUTE_RAW.map((p, i) => {
+    if (i > 0) mile += p.gap || 0;
+    const [x, y] = project(p.lon, p.lat);
+    return { ...p, x, y, mile };
+  });
+})();
+const FINISH_MILES = ROUTE[ROUTE.length - 1].mile;
+
+/* Simplified state polygons in lat/lon (real geography, projected at render time).
+ * Coordinates approximate Natural Earth simplified borders. */
+const STATES_LL = [
+  { abbr:"WA", name:"Washington",     poly:[[-124.7,48.5],[-124.5,47.5],[-123.7,46.7],[-123.0,46.15],[-117.0,46.0],[-117.0,49.0],[-122.8,49.0],[-123.2,48.5],[-122.5,48.0],[-122.0,48.4],[-122.5,48.6],[-124.7,48.5]], label:[-120.5,47.4] },
+  { abbr:"OR", name:"Oregon",         poly:[[-124.5,46.2],[-123.7,46.15],[-117.0,46.0],[-117.0,42.0],[-124.4,42.0],[-124.5,46.2]], label:[-120.5,44.0] },
+  { abbr:"CA", name:"California",     poly:[[-124.4,42.0],[-124.0,40.0],[-123.7,38.9],[-122.5,37.5],[-121.5,36.6],[-120.5,35.3],[-118.5,34.0],[-117.1,32.7],[-114.6,32.7],[-114.6,34.8],[-118.5,38.0],[-119.5,38.7],[-120.0,42.0],[-124.4,42.0]], label:[-120.0,37.0] },
+  { abbr:"ID", name:"Idaho",          poly:[[-117.0,49.0],[-116.05,49.0],[-114.0,46.6],[-111.05,44.5],[-111.05,42.0],[-114.5,42.0],[-116.7,44.5],[-117.0,46.0],[-117.0,49.0]], label:[-114.5,44.5] },
+  { abbr:"NV", name:"Nevada",         poly:[[-120.0,42.0],[-119.5,38.7],[-118.5,38.0],[-114.6,36.0],[-114.04,37.0],[-114.04,42.0],[-120.0,42.0]], label:[-117.0,39.5] },
+  { abbr:"UT", name:"Utah",           poly:[[-114.04,42.0],[-111.05,42.0],[-111.05,41.0],[-109.05,41.0],[-109.05,37.0],[-114.04,37.0],[-114.04,42.0]], label:[-111.5,39.5] },
+  { abbr:"AZ", name:"Arizona",        poly:[[-114.6,32.7],[-114.6,34.8],[-114.04,36.0],[-114.04,37.0],[-109.05,37.0],[-109.05,31.33],[-114.6,32.5],[-114.6,32.7]], label:[-111.5,34.3] },
+  { abbr:"MT", name:"Montana",        poly:[[-116.05,49.0],[-104.04,49.0],[-104.04,45.0],[-111.05,45.0],[-111.05,44.5],[-114.0,46.6],[-116.05,49.0]], label:[-110.0,47.0] },
+  { abbr:"WY", name:"Wyoming",        poly:[[-111.05,45.0],[-111.05,41.0],[-104.05,41.0],[-104.05,45.0],[-111.05,45.0]], label:[-107.5,43.0] },
+  { abbr:"CO", name:"Colorado",       poly:[[-109.05,41.0],[-109.05,37.0],[-102.05,37.0],[-102.05,41.0],[-109.05,41.0]], label:[-105.5,39.0] },
+  { abbr:"NM", name:"New Mexico",     poly:[[-109.05,37.0],[-109.05,31.33],[-106.6,31.78],[-103.0,32.0],[-103.0,36.5],[-103.05,37.0],[-109.05,37.0]], label:[-106.0,34.5] },
+  { abbr:"ND", name:"North Dakota",   poly:[[-104.05,49.0],[-104.05,45.94],[-96.55,45.94],[-96.55,49.0],[-104.05,49.0]], label:[-100.3,47.5] },
+  { abbr:"SD", name:"South Dakota",   poly:[[-104.05,45.94],[-104.05,43.0],[-96.45,43.0],[-96.55,45.94],[-104.05,45.94]], label:[-100.3,44.5] },
+  { abbr:"NE", name:"Nebraska",       poly:[[-104.05,43.0],[-104.05,41.0],[-95.78,40.0],[-95.4,40.0],[-95.65,42.8],[-96.45,43.0],[-104.05,43.0]], label:[-100.0,41.6] },
+  { abbr:"KS", name:"Kansas",         poly:[[-102.05,40.0],[-102.05,37.0],[-94.6,37.0],[-94.6,40.0],[-102.05,40.0]], label:[-98.3,38.5] },
+  { abbr:"OK", name:"Oklahoma",       poly:[[-103.0,36.5],[-103.0,34.5],[-100.0,34.5],[-99.7,34.0],[-97.5,33.85],[-94.4,33.85],[-94.4,37.0],[-103.0,37.0],[-103.0,36.5]], label:[-98.5,35.6] },
+  { abbr:"TX", name:"Texas",          poly:[[-103.0,36.5],[-100.0,36.5],[-100.0,34.5],[-99.7,34.0],[-97.5,33.85],[-94.4,33.85],[-94.0,33.0],[-93.85,31.0],[-93.85,29.7],[-95.0,28.9],[-97.0,28.0],[-97.5,26.1],[-99.1,26.4],[-100.7,28.0],[-103.0,28.9],[-104.6,29.6],[-104.5,30.6],[-106.6,31.78],[-103.0,32.0],[-103.0,36.5]], label:[-99.5,31.0] },
+  { abbr:"MN", name:"Minnesota",      poly:[[-97.23,49.0],[-95.16,48.99],[-94.96,49.36],[-92.5,48.4],[-92.0,46.7],[-89.5,46.0],[-92.5,46.0],[-92.5,43.5],[-96.45,43.5],[-96.55,45.94],[-97.23,49.0]], label:[-94.5,46.5] },
+  { abbr:"IA", name:"Iowa",           poly:[[-96.45,43.5],[-95.65,42.8],[-95.4,40.4],[-95.78,40.0],[-91.5,40.5],[-91.0,42.5],[-91.5,43.5],[-96.45,43.5]], label:[-93.5,42.0] },
+  { abbr:"MO", name:"Missouri",       poly:[[-95.78,40.0],[-95.4,40.4],[-94.6,40.0],[-94.6,37.0],[-94.4,37.0],[-94.4,36.5],[-89.5,36.0],[-89.5,38.0],[-90.13,40.5],[-91.5,40.5],[-95.78,40.0]], label:[-92.5,38.4] },
+  { abbr:"AR", name:"Arkansas",       poly:[[-94.4,36.5],[-94.4,33.0],[-91.0,33.0],[-91.0,35.0],[-89.7,36.0],[-89.5,36.0],[-94.4,36.5]], label:[-92.5,34.8] },
+  { abbr:"LA", name:"Louisiana",      poly:[[-94.0,33.0],[-94.0,31.0],[-93.85,31.0],[-93.85,29.7],[-91.5,29.0],[-90.0,29.0],[-89.0,29.7],[-89.6,30.5],[-89.6,31.0],[-91.0,33.0],[-94.0,33.0]], label:[-92.0,31.0] },
+  { abbr:"WI", name:"Wisconsin",      poly:[[-92.5,46.0],[-92.5,43.5],[-91.0,42.5],[-87.7,42.5],[-86.95,45.4],[-87.7,45.5],[-87.7,46.0],[-89.0,46.5],[-90.5,46.6],[-92.5,46.0]], label:[-90.0,44.6] },
+  { abbr:"IL", name:"Illinois",       poly:[[-91.5,42.5],[-91.0,42.5],[-90.13,40.5],[-89.5,38.0],[-89.5,37.0],[-88.5,37.0],[-88.0,37.5],[-87.5,37.7],[-87.5,42.5],[-91.5,42.5]], label:[-89.3,40.0] },
+  { abbr:"MI", name:"Michigan",       poly:[[-87.5,42.0],[-86.7,41.76],[-83.5,41.76],[-83.0,42.5],[-82.4,43.0],[-82.6,44.0],[-83.5,45.0],[-84.0,45.7],[-84.7,45.85],[-86.0,45.0],[-87.7,45.5],[-87.7,46.0],[-89.0,46.5],[-90.4,46.6],[-89.0,47.5],[-86.0,47.5],[-84.5,46.0],[-84.0,45.6],[-85.5,45.0],[-86.6,44.0],[-86.5,42.4],[-87.5,42.0]], label:[-85.0,44.5] },
+  { abbr:"IN", name:"Indiana",        poly:[[-87.5,42.0],[-87.5,37.7],[-87.0,37.85],[-86.5,38.1],[-85.8,38.7],[-84.8,39.0],[-84.8,41.7],[-86.7,41.76],[-87.5,42.0]], label:[-86.2,40.0] },
+  { abbr:"OH", name:"Ohio",           poly:[[-84.8,41.7],[-84.8,39.0],[-83.0,38.7],[-82.5,38.5],[-81.0,39.0],[-80.5,40.5],[-80.5,42.0],[-82.5,41.7],[-83.5,41.7],[-84.8,41.7]], label:[-82.7,40.3] },
+  { abbr:"KY", name:"Kentucky",       poly:[[-89.5,37.0],[-89.0,36.7],[-86.0,36.5],[-83.0,36.5],[-81.97,37.5],[-82.5,37.5],[-83.0,38.7],[-84.8,39.0],[-85.8,38.7],[-86.5,38.1],[-87.0,37.85],[-87.5,37.7],[-88.5,37.0],[-89.5,37.0]], label:[-85.5,37.6] },
+  { abbr:"TN", name:"Tennessee",      poly:[[-90.3,35.0],[-89.7,36.0],[-89.0,36.7],[-86.0,36.5],[-83.0,36.5],[-83.7,35.3],[-85.5,35.0],[-88.0,35.0],[-90.3,35.0]], label:[-86.5,35.8] },
+  { abbr:"MS", name:"Mississippi",    poly:[[-91.0,35.0],[-91.0,33.0],[-91.65,32.0],[-91.4,31.0],[-89.6,31.0],[-89.0,30.5],[-88.4,30.4],[-88.4,34.99],[-91.0,35.0]], label:[-89.7,32.7] },
+  { abbr:"AL", name:"Alabama",        poly:[[-88.4,35.0],[-88.4,30.4],[-87.5,30.3],[-87.5,30.7],[-85.0,31.0],[-85.0,32.5],[-85.4,35.0],[-88.4,35.0]], label:[-86.7,32.8] },
+  { abbr:"GA", name:"Georgia",        poly:[[-85.4,35.0],[-85.0,32.5],[-85.0,31.0],[-84.0,30.7],[-81.5,30.7],[-81.5,32.0],[-81.0,32.5],[-82.0,33.5],[-83.1,35.0],[-85.4,35.0]], label:[-83.4,32.7] },
+  { abbr:"FL", name:"Florida",        poly:[[-87.5,30.7],[-87.5,30.3],[-85.0,29.7],[-83.0,29.0],[-82.7,27.8],[-82.0,26.5],[-81.0,25.0],[-80.5,25.5],[-80.0,26.5],[-80.5,28.5],[-81.0,30.0],[-82.0,30.7],[-84.0,30.7],[-87.5,30.7]], label:[-82.5,28.6] },
+  { abbr:"SC", name:"South Carolina", poly:[[-83.1,35.0],[-82.0,33.5],[-80.5,32.0],[-79.0,33.0],[-78.5,33.7],[-80.5,34.7],[-82.0,35.0],[-83.1,35.0]], label:[-81.0,34.0] },
+  { abbr:"NC", name:"North Carolina", poly:[[-84.3,35.0],[-83.7,35.3],[-83.0,36.5],[-77.0,36.5],[-75.5,36.0],[-76.5,34.7],[-78.5,33.7],[-79.0,33.0],[-80.5,32.0],[-82.0,33.5],[-83.1,35.0],[-84.3,35.0]], label:[-79.5,35.5] },
+  { abbr:"VA", name:"Virginia",       poly:[[-83.0,36.5],[-77.0,36.5],[-75.7,37.5],[-76.0,37.5],[-77.5,39.5],[-79.0,39.5],[-81.0,38.7],[-82.5,38.5],[-83.0,36.5]], label:[-79.0,37.6] },
+  { abbr:"WV", name:"West Virginia",  poly:[[-82.5,38.5],[-81.97,37.5],[-80.5,38.0],[-79.5,39.5],[-78.5,39.5],[-77.7,39.3],[-79.0,39.5],[-81.0,38.7],[-82.5,38.5]], label:[-80.5,38.8] },
+  { abbr:"PA", name:"Pennsylvania",   poly:[[-80.5,42.0],[-80.5,39.7],[-77.5,39.7],[-75.5,39.7],[-74.7,40.0],[-75.0,40.5],[-75.0,41.5],[-74.7,41.5],[-77.0,42.0],[-79.76,42.0],[-80.5,42.0]], label:[-77.7,40.9] },
+  { abbr:"NJ", name:"New Jersey",     poly:[[-75.0,41.5],[-74.7,41.0],[-74.0,40.5],[-74.0,40.0],[-74.4,39.4],[-74.7,39.0],[-75.5,38.9],[-75.5,39.7],[-75.0,40.5],[-75.0,41.5]], label:[-74.7,40.1] },
+  { abbr:"DE", name:"Delaware",       poly:[[-75.7,39.7],[-75.04,38.45],[-75.5,38.45],[-75.7,39.0],[-75.7,39.7]], label:[-75.5,39.0] },
+  { abbr:"MD", name:"Maryland",       poly:[[-79.5,39.7],[-77.5,39.7],[-75.7,39.7],[-75.5,38.9],[-76.5,38.0],[-77.0,38.5],[-77.5,39.0],[-79.5,39.5],[-79.5,39.7]], label:[-77.5,39.2] },
+  { abbr:"NY", name:"New York",       poly:[[-79.76,42.0],[-79.0,42.5],[-77.0,43.3],[-75.0,44.0],[-73.5,45.0],[-73.34,44.5],[-73.55,42.0],[-73.5,41.0],[-74.0,40.5],[-74.7,41.0],[-75.0,41.5],[-77.0,42.0],[-79.76,42.0]], label:[-75.7,42.9] },
+  { abbr:"CT", name:"Connecticut",    poly:[[-73.69,42.05],[-71.79,42.0],[-71.79,41.3],[-73.69,41.0],[-73.69,42.05]], label:[-72.7,41.55] },
+  { abbr:"RI", name:"R.I.",           poly:[[-71.79,42.0],[-71.12,42.02],[-71.12,41.5],[-71.5,41.4],[-71.79,41.3],[-71.79,42.0]], label:[-71.5,41.7] },
+  { abbr:"MA", name:"Massachusetts",  poly:[[-73.51,42.86],[-71.0,42.86],[-70.7,42.4],[-70.0,42.0],[-71.12,41.5],[-71.79,41.3],[-71.79,42.0],[-73.51,42.05],[-73.51,42.86]], label:[-72.0,42.4] },
+  { abbr:"VT", name:"Vermont",        poly:[[-73.34,45.02],[-72.55,45.0],[-72.5,42.7],[-73.27,42.74],[-73.34,45.02]], label:[-72.7,43.9] },
+  { abbr:"NH", name:"N.H.",           poly:[[-72.55,45.0],[-71.08,45.30],[-70.7,43.6],[-70.83,42.87],[-71.3,42.7],[-72.5,42.7],[-72.55,45.0]], label:[-71.6,43.7] },
+  { abbr:"ME", name:"Maine",          poly:[[-71.08,45.30],[-70.5,46.5],[-69.0,47.4],[-68.0,47.3],[-67.78,45.7],[-67.0,44.5],[-67.94,44.0],[-69.7,43.7],[-70.65,43.6],[-70.83,43.0],[-71.08,45.30]], label:[-69.3,45.4] }
+];
+// Compute projected polygons + label positions once at load
+const STATES = STATES_LL.map(s => {
+  const pts = s.poly.map(([lon, lat]) => project(lon, lat));
+  const [lx, ly] = project(s.label[0], s.label[1]);
+  return { abbr: s.abbr, name: s.name, ptsArr: pts, lx, ly };
+});
+
+/* US land-mass backdrop — single polygon traced clockwise around the lower 48
+ * coastlines + Canadian/Mexican borders. Rendered behind individual states so
+ * any micro-gaps from polygon vertex mismatches blend into the land color. */
+const US_OUTLINE_LL = [
+  // Pacific NW → SW down the west coast
+  [-124.7,48.5],[-124.5,47.5],[-124.0,46.7],[-124.1,43.5],[-124.4,40.0],
+  [-123.7,38.9],[-122.5,37.5],[-121.5,36.6],[-120.5,35.3],[-118.5,34.0],
+  [-117.1,32.7],
+  // Mexican border west to east
+  [-114.7,32.5],[-111.0,31.33],[-108.2,31.33],[-106.6,31.78],[-104.5,30.6],
+  [-103.0,28.9],[-100.7,28.0],[-99.1,26.4],[-97.5,26.1],
+  // Texas Gulf coast → Louisiana → Mississippi → Alabama → Florida
+  [-97.0,28.0],[-95.0,28.9],[-93.85,29.7],[-91.5,29.0],[-89.0,29.7],
+  [-88.4,30.4],[-87.5,30.3],[-85.0,29.7],[-83.0,29.0],[-82.7,27.8],
+  [-82.0,26.5],[-81.0,25.0],[-80.5,25.5],[-80.0,26.5],
+  // Atlantic coast going north
+  [-80.5,28.5],[-81.0,30.0],[-81.5,30.7],[-81.5,32.0],[-79.0,33.0],
+  [-78.5,33.7],[-76.5,34.7],[-75.5,36.0],[-75.7,37.5],[-74.4,39.4],
+  [-74.0,40.0],[-73.5,41.0],[-71.79,41.3],[-71.12,41.5],[-70.0,42.0],
+  [-70.7,42.4],[-70.83,43.0],[-69.7,43.7],[-67.94,44.0],[-67.0,44.5],
+  [-67.78,45.7],[-68.0,47.3],[-69.0,47.4],[-70.5,46.5],[-71.08,45.30],
+  // Canadian border west across Great Lakes region (lakes treated as land
+  // for backdrop purposes; the state polygons render the actual outlines)
+  [-73.34,45.02],[-74.0,45.0],[-75.0,44.0],[-77.0,43.3],[-79.0,42.5],
+  [-79.76,42.27],[-83.0,42.0],[-83.0,45.0],[-83.5,45.0],[-84.0,45.7],
+  [-84.7,45.85],[-86.0,45.8],[-87.7,45.5],[-89.0,47.5],[-90.4,46.6],
+  [-92.0,46.7],[-92.5,48.4],[-94.96,49.36],[-95.16,48.99],[-97.23,49.0],
+  [-104.04,49.0],[-116.05,49.0],[-117.0,49.0],[-122.8,49.0],[-123.2,48.5],
+  [-124.7,48.5]
+];
+const US_OUTLINE = US_OUTLINE_LL.map(([lon, lat]) => project(lon, lat));
+
+// State data
+let players = [];        // { id, name, skin, shirt, shorts, hat, totalMiles, logs: [{date, miles}] }
+let activePlayerId = null;
+let editingPlayerId = null;
+let avatarChoice = { skin: SKIN_COLORS[0], shirt: CLOTHES_COLORS[4], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
+let selectedDate = todayISO();
+let mileInput = '';
+
+// Map view state
+let viewBox = { x: 0, y: 0, w: 1600, h: 900 };
+const BASE_VIEW = { x: 0, y: 0, w: 1600, h: 900 };
+let isPanning = false;
+let panStart = null;
+
+/* ======================= UTILITIES ======================= */
+
+function todayISO() {
+  const d = new Date();
+  return [d.getFullYear(), pad(d.getMonth()+1), pad(d.getDate())].join('-');
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+function uid() { return 'p_' + Math.random().toString(36).slice(2, 9); }
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    players = data.players || [];
+    activePlayerId = data.activePlayerId || (players[0] && players[0].id) || null;
+  } catch (e) {
+    console.warn('failed to load', e);
+  }
+}
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ players, activePlayerId }));
+}
+
+function totalMiles(player) {
+  return player.logs.reduce((s, l) => s + Number(l.miles), 0);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ======================= ROUTE GEOMETRY ======================= */
+
+function positionAtMile(miles) {
+  const m = Math.max(0, Math.min(FINISH_MILES, miles));
+  for (let i = 0; i < ROUTE.length - 1; i++) {
+    const a = ROUTE[i], b = ROUTE[i+1];
+    if (m >= a.mile && m <= b.mile) {
+      const t = (m - a.mile) / (b.mile - a.mile || 1);
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, segIndex: i };
+    }
+  }
+  const last = ROUTE[ROUTE.length - 1];
+  return { x: last.x, y: last.y, segIndex: ROUTE.length - 2 };
+}
+
+function stateAtPosition(x, y) {
+  for (const s of STATES) {
+    if (pointInPolygon(x, y, s.ptsArr)) return s;
+  }
+  return null;
+}
+function pointInPolygon(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-9) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Convert a polygon (array of [x,y]) into a smooth SVG path with rounded corners.
+// `r` controls how rounded each vertex becomes; corners are clipped to half the
+// shorter adjacent edge length to keep small triangles intact.
+function smoothPath(pts, r = 9) {
+  if (pts.length < 3) return '';
+  const n = pts.length;
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i - 1 + n) % n];
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    let dxp = prev[0] - curr[0], dyp = prev[1] - curr[1];
+    const lp = Math.hypot(dxp, dyp) || 1;
+    const rp = Math.min(r, lp / 2);
+    dxp = (dxp / lp) * rp; dyp = (dyp / lp) * rp;
+    let dxn = next[0] - curr[0], dyn = next[1] - curr[1];
+    const ln = Math.hypot(dxn, dyn) || 1;
+    const rn = Math.min(r, ln / 2);
+    dxn = (dxn / ln) * rn; dyn = (dyn / ln) * rn;
+    const ix = curr[0] + dxp, iy = curr[1] + dyp;
+    const ox = curr[0] + dxn, oy = curr[1] + dyn;
+    d += (i === 0 ? `M ${ix},${iy}` : ` L ${ix},${iy}`);
+    d += ` Q ${curr[0]},${curr[1]} ${ox},${oy}`;
+  }
+  return d + ' Z';
+}
+
+/* ======================= AVATAR SVG ======================= */
+
+function avatarSVG(p, size = 30) {
+  const skin = p.skin, shirt = p.shirt, shorts = p.shorts, hat = p.hat;
+  const hatSVG = (hat && hat !== 'none')
+    ? `<ellipse cx="30" cy="14" rx="14" ry="3" fill="${hat}"/><path d="M 20 14 Q 30 4 40 14 Z" fill="${hat}"/>`
+    : '';
+  return `
+    <g>
+      ${hatSVG}
+      <circle cx="30" cy="20" r="9" fill="${skin}" stroke="#0f1422" stroke-width="1"/>
+      <rect x="22" y="29" width="16" height="20" rx="3" fill="${shirt}" stroke="#0f1422" stroke-width="1"/>
+      <rect x="22" y="48" width="7" height="14" rx="2" fill="${shorts}" stroke="#0f1422" stroke-width="1"/>
+      <rect x="31" y="48" width="7" height="14" rx="2" fill="${shorts}" stroke="#0f1422" stroke-width="1"/>
+      <rect x="14" y="32" width="8" height="14" rx="3" fill="${shirt}" stroke="#0f1422" stroke-width="1"/>
+      <rect x="38" y="32" width="8" height="14" rx="3" fill="${shirt}" stroke="#0f1422" stroke-width="1"/>
+    </g>`;
+}
+
+function renderAvatarPreview() {
+  const el = document.getElementById('avatar-preview');
+  if (!el) return;
+  el.innerHTML = avatarSVG(avatarChoice);
+}
+
+/* ======================= MAP RENDER ======================= */
+
+function renderMap() {
+  const svg = document.getElementById('map');
+  svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
+
+  const zoomScale = BASE_VIEW.w / viewBox.w;
+  const showCityLabels = zoomScale >= 1.5;
+  const showMileMarkers = zoomScale >= 2.5;
+  const showHighwayShields = zoomScale >= 1.2;
+  const showStateNames = zoomScale < 4;
+
+  // Background
+  let html = '';
+  html += `<rect class="ocean" x="${viewBox.x}" y="${viewBox.y}" width="${viewBox.w}" height="${viewBox.h}"/>`;
+
+  // Decorative water/border labels at low zoom
+  if (zoomScale < 2) {
+    html += `<text x="30" y="600" fill="#2c3a66" font-size="22" font-style="italic" font-weight="600">PACIFIC</text>`;
+    html += `<text x="1500" y="600" fill="#2c3a66" font-size="22" font-style="italic" font-weight="600" text-anchor="end">ATLANTIC</text>`;
+    html += `<text x="900" y="880" fill="#2c3a66" font-size="16" font-style="italic" font-weight="600" text-anchor="middle">GULF OF MEXICO</text>`;
+    html += `<text x="640" y="100" fill="#2c3a66" font-size="16" font-style="italic" font-weight="600">CANADA</text>`;
+    html += `<text x="520" y="885" fill="#2c3a66" font-size="13" font-style="italic" font-weight="500" opacity="0.75">MEXICO</text>`;
+  }
+
+  // Single land-mass backdrop — same color as states, fills any micro-gaps
+  // between adjacent polygons so they read as one continuous land
+  html += `<path class="land-backdrop" d="${smoothPath(US_OUTLINE, 4)}"/>`;
+
+  // Individual states — slight corner rounding for an organic look
+  html += '<g id="states-layer">';
+  for (const s of STATES) {
+    const d = smoothPath(s.ptsArr, 2);
+    html += `<path class="state" d="${d}" data-abbr="${s.abbr}"><title>${s.name}</title></path>`;
+  }
+  html += '</g>';
+
+  // State labels
+  html += '<g id="state-labels">';
+  for (const s of STATES) {
+    if (showStateNames && zoomScale < 2.2) {
+      html += `<text class="state-label-abbr" x="${s.lx}" y="${s.ly}">${s.abbr}</text>`;
+    } else if (showStateNames) {
+      html += `<text class="state-label" x="${s.lx}" y="${s.ly}">${s.name}</text>`;
+      html += `<text class="state-label-abbr" x="${s.lx}" y="${s.ly + 12}">${s.abbr}</text>`;
+    }
+  }
+  html += '</g>';
+
+  // Route line (shadow, then main)
+  const routePath = ROUTE.map((p, i) => (i === 0 ? 'M' : 'L') + ` ${p.x} ${p.y}`).join(' ');
+  html += `<path class="route-line shadow" d="${routePath}"/>`;
+  html += `<path class="route-line" d="${routePath}" stroke-dasharray="${zoomScale > 2 ? '8 4' : '0'}"/>`;
+
+  // Highway shields (at moderate+ zoom)
+  if (showHighwayShields) {
+    const labeled = new Set();
+    for (const p of ROUTE) {
+      if (p.hwy && !labeled.has(p.hwy) && p.hwy !== 'Start' && p.hwy !== 'Finish') {
+        labeled.add(p.hwy);
+        html += `<g transform="translate(${p.x - 14},${p.y - 22})">
+          <rect class="highway-shield" x="0" y="0" width="28" height="14" rx="3"/>
+          <text class="highway-shield-text" x="14" y="10">${p.hwy}</text>
+        </g>`;
+      }
+    }
+  }
+
+  // Cities
+  for (const p of ROUTE) {
+    const isStartFinish = p.mile === 0 || p.mile === FINISH_MILES;
+    const r = isStartFinish ? 6 : (showCityLabels ? 4 : 3);
+    html += `<circle class="city-dot" cx="${p.x}" cy="${p.y}" r="${r}"/>`;
+    if (isStartFinish) {
+      const flag = p.mile === 0 ? '🏁' : '🏆';
+      html += `<text class="start-flag" x="${p.x + 7}" y="${p.y - 7}">${flag}</text>`;
+    }
+    if (showCityLabels) {
+      html += `<text class="city-label" x="${p.x + 7}" y="${p.y + 14}">${p.name}</text>`;
+    }
+    if (showMileMarkers) {
+      html += `<text class="mile-marker" x="${p.x + 7}" y="${p.y + 26}">mi ${p.mile}</text>`;
+    }
+  }
+
+  // Players
+  html += '<g id="players-layer">';
+  for (const player of players) {
+    const tm = totalMiles(player);
+    const pos = positionAtMile(tm);
+    const { tx, ty, sc, h } = avatarTransform(pos, zoomScale);
+    html += `<g class="player-avatar" transform="translate(${tx},${ty}) scale(${sc})" data-player="${player.id}">${avatarSVG(player)}</g>`;
+    html += `<text class="player-name-tag" data-player="${player.id}" x="${pos.x}" y="${pos.y - h - 6}" style="${zoomScale < 1.3 ? 'opacity:0;' : ''}">${escapeXml(player.name)}</text>`;
+  }
+  html += '</g>';
+
+  svg.innerHTML = html;
+}
+
+// Computes consistent transform numbers for an avatar at a route position.
+function avatarTransform(pos, zoomScale) {
+  const avatarScale = Math.min(1.8, 0.85 + zoomScale * 0.15);
+  const w = 60 * avatarScale * 0.4;
+  const h = 80 * avatarScale * 0.4;
+  return { tx: pos.x - w/2, ty: pos.y - h, sc: avatarScale * 0.4, w, h };
+}
+
+// Update only the affected player's transform — preserves DOM nodes so
+// the CSS transition on .player-avatar animates the move smoothly.
+function updatePlayerOnMap(player) {
+  const svg = document.getElementById('map');
+  if (!svg) return;
+  const avatar = svg.querySelector(`.player-avatar[data-player="${player.id}"]`);
+  if (!avatar) { renderMap(); return; }
+  const tm = totalMiles(player);
+  const pos = positionAtMile(tm);
+  const zoomScale = BASE_VIEW.w / viewBox.w;
+  const { tx, ty, sc, h } = avatarTransform(pos, zoomScale);
+  avatar.setAttribute('transform', `translate(${tx},${ty}) scale(${sc})`);
+  const tag = svg.querySelector(`.player-name-tag[data-player="${player.id}"]`);
+  if (tag) {
+    tag.setAttribute('x', pos.x);
+    tag.setAttribute('y', pos.y - h - 6);
+  }
+}
+
+function escapeXml(s) {
+  return String(s).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
+}
+
+/* ======================= ROSTER & LEADERBOARD ======================= */
+
+function renderRoster() {
+  const el = document.getElementById('roster');
+  if (!el) return;
+  if (players.length === 0) {
+    el.innerHTML = '<div class="empty-help">No players yet. Customize an avatar below and click Add Player.</div>';
+    return;
+  }
+  el.innerHTML = players.map(p => {
+    const tm = totalMiles(p);
+    const isActive = p.id === activePlayerId;
+    return `<div class="roster-row ${isActive ? 'active' : ''}" data-id="${p.id}">
+      <svg class="mini-avatar" viewBox="0 0 60 80">${avatarSVG(p)}</svg>
+      <div class="info">
+        <div class="name">${escapeXml(p.name)}</div>
+        <div class="miles">${tm.toFixed(1)} mi · ${((tm/FINISH_MILES)*100).toFixed(1)}%</div>
+      </div>
+      <button class="del" data-action="edit" title="Edit">✎</button>
+      <button class="del" data-action="delete" title="Remove">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function renderLeaderboard() {
+  const el = document.getElementById('lb-body');
+  if (players.length === 0) {
+    el.innerHTML = '<div class="empty">Add a player to begin</div>';
+    return;
+  }
+  const sorted = [...players].sort((a, b) => totalMiles(b) - totalMiles(a));
+  let html = '<table><thead><tr><th>#</th><th>Player</th><th>Miles</th></tr></thead><tbody>';
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i];
+    const tm = totalMiles(p);
+    const won = tm >= FINISH_MILES;
+    html += `<tr class="${won ? 'winner' : ''}">
+      <td>${i+1}</td>
+      <td><span class="swatch" style="background:${p.shirt}"></span>${escapeXml(p.name)}${won ? ' 🏆' : ''}</td>
+      <td>${tm.toFixed(1)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+/* ======================= LOG SECTION ======================= */
+
+function renderLogSection() {
+  const el = document.getElementById('log-content');
+  if (!el) return;
+  if (players.length === 0) {
+    el.innerHTML = '<div class="empty-help">Add a player to start logging miles.</div>';
+    return;
+  }
+  const active = players.find(p => p.id === activePlayerId) || players[0];
+  if (!activePlayerId) activePlayerId = active.id;
+
+  el.innerHTML = `
+    <div class="field">
+      <label>Active Player</label>
+      <select id="active-select" style="width:100%;padding:8px 10px;background:#0f1422;color:#e8ecf3;border:1px solid #344371;border-radius:6px;font-size:14px;">
+        ${players.map(p => `<option value="${p.id}" ${p.id===activePlayerId?'selected':''}>${escapeXml(p.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Date</label>
+      <div class="date-picker-wrap">
+        <button class="date-btn" id="date-btn">
+          <span id="date-btn-label">${formatDate(selectedDate)}</span>
+          <span style="color:#8c97b5;">📅</span>
+        </button>
+        <div class="calendar hidden" id="calendar"></div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Miles Run</label>
+      <input type="number" id="miles-input" min="0" step="0.1" placeholder="e.g. 5.2" value="${mileInput}">
+    </div>
+    <button class="primary" id="log-miles-btn">Log Miles</button>
+    <div style="margin-top:12px;font-size:11px;color:#8c97b5;text-transform:uppercase;letter-spacing:0.4px;">Recent runs</div>
+    <div id="recent-logs" style="margin-top:6px;font-size:12px;"></div>
+  `;
+  renderRecentLogs();
+}
+
+function renderRecentLogs() {
+  const el = document.getElementById('recent-logs');
+  if (!el) return;
+  const active = players.find(p => p.id === activePlayerId);
+  if (!active || active.logs.length === 0) {
+    el.innerHTML = '<div style="color:#6c7896;padding:6px 0;">No runs yet.</div>';
+    return;
+  }
+  const recent = [...active.logs].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5);
+  el.innerHTML = recent.map(l => `
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #243057;">
+      <span>${formatDate(l.date)}</span>
+      <span style="color:#ffd866;font-weight:600;">${Number(l.miles).toFixed(1)} mi</span>
+    </div>
+  `).join('');
+}
+
+function formatDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[m-1]} ${d}, ${y}`;
+}
+
+/* ======================= CALENDAR ======================= */
+
+let calMonth, calYear;
+function openCalendar() {
+  const cal = document.getElementById('calendar');
+  cal.classList.remove('hidden');
+  const [y, m] = selectedDate.split('-').map(Number);
+  calYear = y; calMonth = m - 1;
+  renderCalendar();
+}
+function closeCalendar() {
+  const cal = document.getElementById('calendar');
+  if (cal) cal.classList.add('hidden');
+}
+function renderCalendar() {
+  const cal = document.getElementById('calendar');
+  if (!cal) return;
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const firstDow = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const today = todayISO();
+
+  let html = `
+    <div class="cal-header">
+      <button data-cal="prev">‹</button>
+      <span class="month-label">${monthNames[calMonth]} ${calYear}</span>
+      <button data-cal="next">›</button>
+    </div>
+    <div class="cal-grid">
+      ${['S','M','T','W','T','F','S'].map(d => `<div class="dow">${d}</div>`).join('')}
+  `;
+  for (let i = 0; i < firstDow; i++) html += '<div class="day other"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = `${calYear}-${pad(calMonth+1)}-${pad(d)}`;
+    const cls = ['day'];
+    if (iso === today) cls.push('today');
+    if (iso === selectedDate) cls.push('selected');
+    html += `<div class="${cls.join(' ')}" data-day="${iso}">${d}</div>`;
+  }
+  html += '</div>';
+  cal.innerHTML = html;
+}
+
+/* ======================= SWATCHES ======================= */
+
+function renderSwatches() {
+  buildSwatch('skin-swatches', SKIN_COLORS, 'skin');
+  buildSwatch('shirt-swatches', CLOTHES_COLORS, 'shirt');
+  buildSwatch('shorts-swatches', CLOTHES_COLORS, 'shorts');
+  buildSwatch('hat-swatches', HAT_COLORS, 'hat');
+}
+function buildSwatch(id, colors, key) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = colors.map(c => {
+    const sel = avatarChoice[key] === c ? 'selected' : '';
+    const bg = c === 'none' ? 'background:repeating-linear-gradient(45deg,#444 0 4px,#222 4px 8px);' : `background:${c};`;
+    return `<div class="sw ${sel}" data-key="${key}" data-color="${c}" style="${bg}" title="${c}"></div>`;
+  }).join('');
+}
+
+/* ======================= EVENTS ======================= */
+
+function selectPlayer(id) {
+  activePlayerId = id;
+  save();
+  renderRoster();
+  renderDrawerRoster();
+  renderLogSection();
+}
+
+function deletePlayer(id) {
+  if (!confirm('Remove this player and all their runs?')) return;
+  players = players.filter(p => p.id !== id);
+  if (activePlayerId === id) activePlayerId = players[0]?.id || null;
+  save();
+  refreshAll();
+}
+
+function startEditPlayer(id) {
+  const p = players.find(x => x.id === id);
+  if (!p) return;
+  editingPlayerId = id;
+  avatarChoice = { skin: p.skin, shirt: p.shirt, shorts: p.shorts, hat: p.hat };
+  // Sidebar form (only present when no players, but harmless)
+  setIfExists('player-name', 'value', p.name);
+  setIfExists('add-player-title', 'textContent', 'Edit Player');
+  setIfExists('save-player', 'textContent', 'Save Changes');
+  const cb = document.getElementById('cancel-edit'); if (cb) cb.style.display = 'block';
+  // Drawer form (the one that actually shows after first player)
+  if (!document.getElementById('drawer-manage').classList.contains('open')) {
+    openDrawer('manage');
+  } else {
+    renderManageDrawer();
+  }
+  setIfExists('drawer-player-name', 'value', p.name);
+  setIfExists('drawer-add-title', 'textContent', 'Edit Player');
+  setIfExists('drawer-save-player', 'textContent', 'Save Changes');
+  const dcb = document.getElementById('drawer-cancel-edit'); if (dcb) dcb.style.display = 'block';
+  renderSwatches();
+  renderAvatarPreview();
+  renderDrawerSwatches();
+  renderDrawerAvatarPreview();
+  const focusEl = document.getElementById('drawer-player-name') || document.getElementById('player-name');
+  if (focusEl) focusEl.focus();
+}
+
+function cancelEdit() {
+  editingPlayerId = null;
+  setIfExists('player-name', 'value', '');
+  setIfExists('add-player-title', 'textContent', 'Add Player');
+  setIfExists('save-player', 'textContent', 'Add Player');
+  const cb = document.getElementById('cancel-edit'); if (cb) cb.style.display = 'none';
+  setIfExists('drawer-player-name', 'value', '');
+  setIfExists('drawer-add-title', 'textContent', 'Add Player');
+  setIfExists('drawer-save-player', 'textContent', 'Add Player');
+  const dcb = document.getElementById('drawer-cancel-edit'); if (dcb) dcb.style.display = 'none';
+  avatarChoice = { skin: SKIN_COLORS[0], shirt: CLOTHES_COLORS[Math.floor(Math.random()*CLOTHES_COLORS.length)], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
+  renderSwatches();
+  renderAvatarPreview();
+  renderDrawerSwatches();
+  renderDrawerAvatarPreview();
+}
+
+function setIfExists(id, prop, val) {
+  const el = document.getElementById(id);
+  if (el) el[prop] = val;
+}
+
+function savePlayerFromDrawer() {
+  const name = (document.getElementById('drawer-player-name') || {}).value;
+  savePlayerWithName((name || '').trim());
+}
+
+function savePlayer() {
+  const name = (document.getElementById('player-name') || {}).value;
+  savePlayerWithName((name || '').trim());
+}
+
+function savePlayerWithName(name) {
+  if (!name) { showToast('Enter a name'); return; }
+  if (editingPlayerId) {
+    const p = players.find(x => x.id === editingPlayerId);
+    if (p) Object.assign(p, { name, ...avatarChoice });
+    showToast('Player updated');
+  } else {
+    if (players.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+      showToast('Name already taken'); return;
+    }
+    const p = { id: uid(), name, ...avatarChoice, logs: [] };
+    players.push(p);
+    if (!activePlayerId) activePlayerId = p.id;
+    showToast('Player added');
+  }
+  save();
+  const wasEditing = !!editingPlayerId;
+  try { cancelEdit(); } catch (e) { console.error('cancelEdit failed:', e); }
+  try { refreshAll(); } catch (e) { console.error('refreshAll failed:', e); }
+  // Close the manage drawer after a successful add/edit so the FABs (Log Miles
+  // / Manage Players) become visible. Users can re-open it any time.
+  closeDrawer();
+}
+
+function logMiles() {
+  const active = players.find(p => p.id === activePlayerId);
+  if (!active) { showToast('Select a player first'); return; }
+  const miles = parseFloat(document.getElementById('miles-input').value);
+  if (!miles || miles <= 0) { showToast('Enter miles > 0'); return; }
+  const wasFinished = totalMiles(active) >= FINISH_MILES;
+
+  active.logs.push({ date: selectedDate, miles });
+  save();
+  mileInput = '';
+
+  const tm = totalMiles(active);
+  if (!wasFinished && tm >= FINISH_MILES) {
+    const isFirstWinner = !players.some(p => p.id !== active.id && totalMiles(p) >= FINISH_MILES && p.firstFinish);
+    active.firstFinish = isFirstWinner ? Date.now() : active.firstFinish;
+    showWinner(active);
+  } else {
+    showToast(`+${miles.toFixed(1)} mi for ${active.name}`);
+  }
+  // Smoothly animate the avatar instead of redrawing the whole map
+  updatePlayerOnMap(active);
+  renderLeaderboard();
+  // Re-render the log section drawer so recent logs + miles input refresh
+  if (document.getElementById('drawer-log').classList.contains('open')) renderLogSection();
+}
+
+function showWinner(player) {
+  const banner = document.getElementById('winner-banner');
+  const others = players.filter(p => p.id !== player.id && totalMiles(p) >= FINISH_MILES && p.firstFinish && p.firstFinish < (player.firstFinish || Infinity));
+  const isFirst = others.length === 0;
+  document.getElementById('winner-name').textContent = `🏆 ${player.name}!`;
+  document.getElementById('winner-msg').textContent = isFirst
+    ? `First to reach New York City — ${FINISH_MILES} miles conquered!`
+    : `Reached New York City! Place: ${others.length + 1}`;
+  banner.classList.add('show');
+}
+
+function refreshAll() {
+  document.getElementById('year-label').textContent = new Date().getFullYear();
+  renderLeaderboard();
+  // Keep open drawer content fresh
+  if (document.getElementById('drawer-manage').classList.contains('open')) {
+    renderDrawerRoster();
+  }
+  if (document.getElementById('drawer-log').classList.contains('open')) {
+    renderLogSection();
+  }
+  renderMap();
+}
+
+function openDrawer(which) {
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('drawer-log').classList.toggle('open', which === 'log');
+  document.getElementById('drawer-manage').classList.toggle('open', which === 'manage');
+  if (which === 'log') {
+    document.getElementById('drawer-log-body').innerHTML = '<div id="log-content"></div>';
+    renderLogSection();
+  } else if (which === 'manage') {
+    renderManageDrawer();
+  }
+}
+function closeDrawer() {
+  document.getElementById('drawer-overlay').classList.remove('open');
+  document.getElementById('drawer-log').classList.remove('open');
+  document.getElementById('drawer-manage').classList.remove('open');
+  closeCalendar();
+}
+
+function renderManageDrawer() {
+  const body = document.getElementById('drawer-manage-body');
+  body.innerHTML = `
+    <section style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid #243057;">
+      <h2 style="font-size:13px;color:#ffd866;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">Players</h2>
+      <div id="drawer-roster" class="roster"></div>
+    </section>
+    <section>
+      <h2 id="drawer-add-title" style="font-size:13px;color:#ffd866;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">Add Player</h2>
+      <div class="avatar-preview"><svg id="drawer-avatar-preview" viewBox="0 0 60 80"></svg></div>
+      <div class="field"><label>Name</label><input type="text" id="drawer-player-name" placeholder="Player name" maxlength="20"></div>
+      <div class="field"><label>Skin</label><div class="swatches" id="drawer-skin-swatches"></div></div>
+      <div class="field"><label>Shirt</label><div class="swatches" id="drawer-shirt-swatches"></div></div>
+      <div class="field"><label>Shorts</label><div class="swatches" id="drawer-shorts-swatches"></div></div>
+      <div class="field"><label>Hat</label><div class="swatches" id="drawer-hat-swatches"></div></div>
+      <button class="primary" id="drawer-save-player">Add Player</button>
+      <button class="secondary" id="drawer-cancel-edit" style="width:100%;margin-top:6px;display:none;">Cancel</button>
+    </section>
+  `;
+  renderDrawerSwatches();
+  renderDrawerAvatarPreview();
+  renderDrawerRoster();
+}
+
+function renderDrawerRoster() {
+  const el = document.getElementById('drawer-roster');
+  if (!el) return;
+  if (players.length === 0) {
+    el.innerHTML = '<div class="empty-help">No players yet.</div>';
+    return;
+  }
+  el.innerHTML = players.map(p => {
+    const tm = totalMiles(p);
+    const isActive = p.id === activePlayerId;
+    return `<div class="roster-row ${isActive ? 'active' : ''}" data-id="${p.id}">
+      <svg class="mini-avatar" viewBox="0 0 60 80">${avatarSVG(p)}</svg>
+      <div class="info">
+        <div class="name">${escapeXml(p.name)}</div>
+        <div class="miles">${tm.toFixed(1)} mi · ${((tm/FINISH_MILES)*100).toFixed(1)}%</div>
+      </div>
+      <button class="del" data-action="edit" title="Edit">✎</button>
+      <button class="del" data-action="delete" title="Remove">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function renderDrawerSwatches() {
+  buildSwatch('drawer-skin-swatches', SKIN_COLORS, 'skin');
+  buildSwatch('drawer-shirt-swatches', CLOTHES_COLORS, 'shirt');
+  buildSwatch('drawer-shorts-swatches', CLOTHES_COLORS, 'shorts');
+  buildSwatch('drawer-hat-swatches', HAT_COLORS, 'hat');
+}
+function renderDrawerAvatarPreview() {
+  const el = document.getElementById('drawer-avatar-preview');
+  if (el) el.innerHTML = avatarSVG(avatarChoice);
+}
+
+/* ======================= ZOOM/PAN ======================= */
+
+function setZoom(factor, cx, cy) {
+  const newW = viewBox.w / factor;
+  const newH = viewBox.h / factor;
+  const minW = 80, maxW = BASE_VIEW.w;
+  if (newW < minW || newW > maxW) return;
+  // keep cx,cy fixed in viewport
+  const rx = (cx - viewBox.x) / viewBox.w;
+  const ry = (cy - viewBox.y) / viewBox.h;
+  viewBox.x = cx - rx * newW;
+  viewBox.y = cy - ry * newH;
+  viewBox.w = newW;
+  viewBox.h = newH;
+  clampView();
+  renderMap();
+}
+function resetView() {
+  viewBox = { ...BASE_VIEW };
+  renderMap();
+}
+function clampView() {
+  // Allow some overflow but constrain so map stays roughly visible
+  const margin = 200;
+  if (viewBox.x < -margin) viewBox.x = -margin;
+  if (viewBox.y < -margin) viewBox.y = -margin;
+  if (viewBox.x + viewBox.w > BASE_VIEW.w + margin) viewBox.x = BASE_VIEW.w + margin - viewBox.w;
+  if (viewBox.y + viewBox.h > BASE_VIEW.h + margin) viewBox.y = BASE_VIEW.h + margin - viewBox.h;
+}
+
+function svgPoint(evt) {
+  const svg = document.getElementById('map');
+  const rect = svg.getBoundingClientRect();
+  const xRatio = (evt.clientX - rect.left) / rect.width;
+  const yRatio = (evt.clientY - rect.top) / rect.height;
+  return {
+    x: viewBox.x + xRatio * viewBox.w,
+    y: viewBox.y + yRatio * viewBox.h
+  };
+}
+
+/* ======================= INIT ======================= */
+
+function init() {
+  // Surface any silent errors as a toast so failures are visible
+  window.addEventListener('error', e => {
+    console.error(e.error || e.message);
+    try { showToast('Error: ' + (e.message || 'see console')); } catch(_) {}
+  });
+  load();
+  if (players.length === 0) {
+    avatarChoice = { skin: SKIN_COLORS[0], shirt: CLOTHES_COLORS[4], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
+  }
+  refreshAll();
+  // Auto-open the manage drawer so first-time users can create their avatar
+  if (players.length === 0) {
+    openDrawer('manage');
+  }
+  // Save on tab close as a belt-and-suspenders for persistence
+  window.addEventListener('beforeunload', () => { try { save(); } catch (_) {} });
+
+  // Global delegated click handler — single source of truth
+  document.body.addEventListener('click', e => {
+    // Swatches
+    const sw = e.target.closest('.sw');
+    if (sw) {
+      avatarChoice[sw.dataset.key] = sw.dataset.color;
+      renderSwatches();
+      renderAvatarPreview();
+      renderDrawerSwatches();
+      renderDrawerAvatarPreview();
+      return;
+    }
+
+    // FAB buttons
+    if (e.target.closest('#fab-log')) { openDrawer('log'); return; }
+    if (e.target.closest('#fab-manage')) { openDrawer('manage'); return; }
+    if (e.target.closest('[data-close-drawer]') || e.target.id === 'drawer-overlay') { closeDrawer(); return; }
+
+    // Log Miles button (works in either sidebar or drawer)
+    if (e.target.closest('#log-miles-btn')) { logMiles(); return; }
+
+    // Save / cancel in drawer add-player form
+    if (e.target.closest('#drawer-save-player')) { savePlayerFromDrawer(); return; }
+    if (e.target.closest('#drawer-cancel-edit')) { cancelEdit(); return; }
+
+    // Save / cancel in original sidebar form
+    if (e.target.closest('#save-player')) { savePlayer(); return; }
+    if (e.target.closest('#cancel-edit')) { cancelEdit(); return; }
+
+    // Roster row clicks (sidebar or drawer)
+    const row = e.target.closest('.roster-row');
+    if (row) {
+      const id = row.dataset.id;
+      const actionEl = e.target.closest('[data-action]');
+      const action = actionEl && actionEl.dataset.action;
+      if (action === 'delete') { deletePlayer(id); return; }
+      if (action === 'edit') { startEditPlayer(id); return; }
+      selectPlayer(id);
+      return;
+    }
+
+    // Date picker button
+    if (e.target.closest('#date-btn')) {
+      const cal = document.getElementById('calendar');
+      if (cal && cal.classList.contains('hidden')) openCalendar();
+      else closeCalendar();
+      e.stopPropagation();
+      return;
+    }
+
+    // Calendar nav
+    const calBtn = e.target.closest('[data-cal]');
+    if (calBtn) {
+      if (calBtn.dataset.cal === 'prev') { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); }
+      if (calBtn.dataset.cal === 'next') { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); }
+      e.stopPropagation();
+      return;
+    }
+
+    // Day pick
+    const dayEl = e.target.closest('.day');
+    if (dayEl && dayEl.dataset.day) {
+      selectedDate = dayEl.dataset.day;
+      const lab = document.getElementById('date-btn-label');
+      if (lab) lab.textContent = formatDate(selectedDate);
+      closeCalendar();
+      return;
+    }
+
+    // close calendar on outside click
+    if (!e.target.closest('.date-picker-wrap') && !e.target.closest('.calendar')) closeCalendar();
+  });
+
+  // Player name Enter key (sidebar)
+  document.body.addEventListener('keydown', e => {
+    if (e.target.id === 'player-name' && e.key === 'Enter') savePlayer();
+    if (e.target.id === 'drawer-player-name' && e.key === 'Enter') savePlayerFromDrawer();
+  });
+
+  // Active select
+  document.body.addEventListener('change', e => {
+    if (e.target.id === 'active-select') {
+      activePlayerId = e.target.value;
+      save();
+      renderRoster();
+      renderRecentLogs();
+    }
+  });
+  document.body.addEventListener('input', e => {
+    if (e.target.id === 'miles-input') mileInput = e.target.value;
+  });
+
+  // Map zoom buttons
+  document.getElementById('zoom-in').addEventListener('click', () => {
+    setZoom(1.5, viewBox.x + viewBox.w/2, viewBox.y + viewBox.h/2);
+  });
+  document.getElementById('zoom-out').addEventListener('click', () => {
+    setZoom(1/1.5, viewBox.x + viewBox.w/2, viewBox.y + viewBox.h/2);
+  });
+  document.getElementById('zoom-reset').addEventListener('click', resetView);
+
+  // Wheel zoom
+  const svg = document.getElementById('map');
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const pt = svgPoint(e);
+    const factor = e.deltaY < 0 ? 1.18 : 1/1.18;
+    setZoom(factor, pt.x, pt.y);
+  }, { passive: false });
+
+  // Pan
+  svg.addEventListener('mousedown', e => {
+    if (e.target.closest('.player-avatar')) return;
+    isPanning = true;
+    panStart = { x: e.clientX, y: e.clientY, vx: viewBox.x, vy: viewBox.y };
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isPanning) return;
+    const rect = svg.getBoundingClientRect();
+    const dx = (e.clientX - panStart.x) * (viewBox.w / rect.width);
+    const dy = (e.clientY - panStart.y) * (viewBox.h / rect.height);
+    viewBox.x = panStart.vx - dx;
+    viewBox.y = panStart.vy - dy;
+    clampView();
+    renderMap();
+  });
+  window.addEventListener('mouseup', () => { isPanning = false; });
+
+  // Player avatar click — center on it and zoom in slightly
+  svg.addEventListener('click', e => {
+    const av = e.target.closest('.player-avatar');
+    if (!av) return;
+    const id = av.dataset.player;
+    const p = players.find(x => x.id === id);
+    if (!p) return;
+    const pos = positionAtMile(totalMiles(p));
+    const state = stateAtPosition(pos.x, pos.y);
+    const seg = ROUTE[Math.min(pos.segIndex, ROUTE.length - 1)];
+    showToast(`${p.name} — ${state ? state.name : 'on route'} · near ${seg.name}${seg.hwy ? ' · ' + seg.hwy : ''}`);
+    // zoom toward avatar (preserve 16:9 viewBox aspect)
+    viewBox.w = 400; viewBox.h = 400 * (BASE_VIEW.h / BASE_VIEW.w);
+    viewBox.x = pos.x - viewBox.w / 2; viewBox.y = pos.y - viewBox.h / 2;
+    clampView();
+    renderMap();
+  });
+
+  // Touch support (basic single-finger pan)
+  svg.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) {
+      isPanning = true;
+      panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, vx: viewBox.x, vy: viewBox.y };
+    }
+  });
+  svg.addEventListener('touchmove', e => {
+    if (!isPanning || e.touches.length !== 1) return;
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const dx = (e.touches[0].clientX - panStart.x) * (viewBox.w / rect.width);
+    const dy = (e.touches[0].clientY - panStart.y) * (viewBox.h / rect.height);
+    viewBox.x = panStart.vx - dx;
+    viewBox.y = panStart.vy - dy;
+    clampView();
+    renderMap();
+  }, { passive: false });
+  svg.addEventListener('touchend', () => { isPanning = false; });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
