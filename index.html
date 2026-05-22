@@ -512,25 +512,112 @@ function todayISO() {
 function pad(n) { return String(n).padStart(2, '0'); }
 function uid() { return 'p_' + Math.random().toString(36).slice(2, 9); }
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    players = data.players || [];
-    activePlayerId = data.activePlayerId || (players[0] && players[0].id) || null;
-    // Backfill log IDs so old logs without one can be edited/deleted
-    for (const p of players) {
-      if (!Array.isArray(p.logs)) p.logs = [];
-      for (const l of p.logs) if (!l.id) l.id = uid().replace('p_', 'l_');
+/* ======================= STORE ABSTRACTION =======================
+ * Both LocalStore (today's localStorage) and the future RemoteStore
+ * (Supabase, Phase 3) share this method surface. All mutators go through
+ * the store; renderers continue to read from the `players` array directly.
+ * Mutations operate in-place on the module-level `players` array so the
+ * reference stays stable for the renderers.
+ *
+ *   loadLobby()                    → fills `players` + `activePlayerId`
+ *   upsertMember(member)           → adds or updates a member; returns it
+ *   removeMember(id)                → removes a member and all their logs
+ *   insertLog(memberId, log)       → appends a log to a member; returns it
+ *   updateLog(memberId, id, patch) → patches an existing log
+ *   deleteLog(memberId, logId)      → removes a log
+ *   setActive(id)                  → sets per-browser activePlayerId
+ *   setFirstFinish(memberId, ts)   → marks finish-line crossing (idempotent)
+ *   subscribe(handlers)            → no-op locally; remote attaches realtime
+ *
+ * Every method returns a Promise so call sites can `await` uniformly.
+ */
+class LocalStore {
+  async loadLobby() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        // Mutate `players` in place to preserve the reference held by renderers
+        players.length = 0;
+        for (const p of (data.players || [])) players.push(p);
+        activePlayerId = data.activePlayerId || (players[0] && players[0].id) || null;
+        // Backfill log IDs so old logs without one can be edited/deleted
+        for (const p of players) {
+          if (!Array.isArray(p.logs)) p.logs = [];
+          for (const l of p.logs) if (!l.id) l.id = uid().replace('p_', 'l_');
+        }
+      }
+    } catch (e) {
+      console.warn('failed to load', e);
     }
-  } catch (e) {
-    console.warn('failed to load', e);
+    return { players, activePlayerId };
   }
+  _persist() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ players, activePlayerId }));
+  }
+  async upsertMember(member) {
+    if (member.id) {
+      const existing = players.find(p => p.id === member.id);
+      if (existing) Object.assign(existing, member);
+      else { if (!member.logs) member.logs = []; players.push(member); }
+    } else {
+      member.id = uid();
+      if (!member.logs) member.logs = [];
+      players.push(member);
+      if (!activePlayerId) activePlayerId = member.id;
+    }
+    this._persist();
+    return member;
+  }
+  async removeMember(id) {
+    const idx = players.findIndex(p => p.id === id);
+    if (idx >= 0) players.splice(idx, 1);
+    if (activePlayerId === id) activePlayerId = players[0]?.id || null;
+    this._persist();
+  }
+  async insertLog(memberId, log) {
+    const player = players.find(p => p.id === memberId);
+    if (!player) throw new Error('Member not found: ' + memberId);
+    if (!log.id) log.id = uid().replace('p_', 'l_');
+    player.logs.push(log);
+    this._persist();
+    return log;
+  }
+  async updateLog(memberId, logId, patch) {
+    const player = players.find(p => p.id === memberId);
+    if (!player) throw new Error('Member not found: ' + memberId);
+    const log = player.logs.find(l => l.id === logId);
+    if (!log) throw new Error('Log not found: ' + logId);
+    Object.assign(log, patch);
+    this._persist();
+    return log;
+  }
+  async deleteLog(memberId, logId) {
+    const player = players.find(p => p.id === memberId);
+    if (!player) return;
+    const idx = player.logs.findIndex(l => l.id === logId);
+    if (idx >= 0) player.logs.splice(idx, 1);
+    this._persist();
+  }
+  async setActive(id) {
+    activePlayerId = id;
+    this._persist();
+  }
+  async setFirstFinish(memberId, ts) {
+    const player = players.find(p => p.id === memberId);
+    if (!player || player.firstFinish) return; // idempotent
+    player.firstFinish = ts;
+    this._persist();
+  }
+  subscribe(_handlers) { /* no-op for local store */ }
 }
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ players, activePlayerId }));
+
+/* RemoteStore — implemented in Phase 3 (Supabase). Mirrors LocalStore's API. */
+class RemoteStore {
+  constructor() { throw new Error('RemoteStore not implemented yet (Phase 3)'); }
 }
+
+const store = new LocalStore();
 
 function totalMiles(player) {
   return player.logs.reduce((s, l) => s + Number(l.miles), 0);
@@ -879,7 +966,7 @@ function renderLogRow(l) {
   </div>`;
 }
 
-function saveLogEdit(id) {
+async function saveLogEdit(id) {
   const player = players.find(p => p.id === activePlayerId);
   if (!player) return;
   const log = player.logs.find(l => l.id === id);
@@ -890,23 +977,20 @@ function saveLogEdit(id) {
   const miles = parseFloat(row.querySelector('[data-edit="miles"]').value);
   if (!date) { showToast('Pick a date'); return; }
   if (!miles || miles <= 0) { showToast('Miles must be > 0'); return; }
-  log.date = date;
-  log.miles = miles;
+  await store.updateLog(player.id, id, { date, miles });
   editingLogId = null;
-  save();
   renderRecentLogs();
   renderLeaderboard();
   updatePlayerOnMap(player);
   showToast('Run updated');
 }
 
-function deleteLog(id) {
+async function deleteLog(id) {
   const player = players.find(p => p.id === activePlayerId);
   if (!player) return;
   if (!confirm('Delete this run?')) return;
-  player.logs = player.logs.filter(l => l.id !== id);
+  await store.deleteLog(player.id, id);
   if (editingLogId === id) editingLogId = null;
-  save();
   renderRecentLogs();
   renderLeaderboard();
   updatePlayerOnMap(player);
@@ -982,19 +1066,16 @@ function buildSwatch(id, colors, key) {
 
 /* ======================= EVENTS ======================= */
 
-function selectPlayer(id) {
-  activePlayerId = id;
-  save();
+async function selectPlayer(id) {
+  await store.setActive(id);
   renderRoster();
   renderDrawerRoster();
   renderLogSection();
 }
 
-function deletePlayer(id) {
+async function deletePlayer(id) {
   if (!confirm('Remove this player and all their runs?')) return;
-  players = players.filter(p => p.id !== id);
-  if (activePlayerId === id) activePlayerId = players[0]?.id || null;
-  save();
+  await store.removeMember(id);
   refreshAll();
 }
 
@@ -1058,23 +1139,18 @@ function savePlayer() {
   savePlayerWithName((name || '').trim());
 }
 
-function savePlayerWithName(name) {
+async function savePlayerWithName(name) {
   if (!name) { showToast('Enter a name'); return; }
   if (editingPlayerId) {
-    const p = players.find(x => x.id === editingPlayerId);
-    if (p) Object.assign(p, { name, ...avatarChoice });
+    await store.upsertMember({ id: editingPlayerId, name, ...avatarChoice });
     showToast('Player updated');
   } else {
     if (players.some(p => p.name.toLowerCase() === name.toLowerCase())) {
       showToast('Name already taken'); return;
     }
-    const p = { id: uid(), name, ...avatarChoice, logs: [] };
-    players.push(p);
-    if (!activePlayerId) activePlayerId = p.id;
+    await store.upsertMember({ name, ...avatarChoice, logs: [] });
     showToast('Player added');
   }
-  save();
-  const wasEditing = !!editingPlayerId;
   try { cancelEdit(); } catch (e) { console.error('cancelEdit failed:', e); }
   try { refreshAll(); } catch (e) { console.error('refreshAll failed:', e); }
   // Close the manage drawer after a successful add/edit so the FABs (Log Miles
@@ -1082,21 +1158,22 @@ function savePlayerWithName(name) {
   closeDrawer();
 }
 
-function logMiles() {
+async function logMiles() {
   const active = players.find(p => p.id === activePlayerId);
   if (!active) { showToast('Select a player first'); return; }
   const miles = parseFloat(document.getElementById('miles-input').value);
   if (!miles || miles <= 0) { showToast('Enter miles > 0'); return; }
   const wasFinished = totalMiles(active) >= FINISH_MILES;
 
-  active.logs.push({ id: uid().replace('p_', 'l_'), date: selectedDate, miles });
-  save();
+  await store.insertLog(active.id, { date: selectedDate, miles });
   mileInput = '';
 
   const tm = totalMiles(active);
   if (!wasFinished && tm >= FINISH_MILES) {
+    // Only the first crosser gets a timestamp; later finishers are ranked by count.
+    // In remote mode (Phase 3+) a Postgres trigger replaces this client-side check.
     const isFirstWinner = !players.some(p => p.id !== active.id && totalMiles(p) >= FINISH_MILES && p.firstFinish);
-    active.firstFinish = isFirstWinner ? Date.now() : active.firstFinish;
+    if (isFirstWinner) await store.setFirstFinish(active.id, Date.now());
     showWinner(active);
   } else {
     showToast(`+${miles.toFixed(1)} mi for ${active.name}`);
@@ -1282,13 +1359,13 @@ function svgPoint(evt) {
 
 /* ======================= INIT ======================= */
 
-function init() {
+async function init() {
   // Surface any silent errors as a toast so failures are visible
   window.addEventListener('error', e => {
     console.error(e.error || e.message);
     try { showToast('Error: ' + (e.message || 'see console')); } catch(_) {}
   });
-  load();
+  await store.loadLobby();
   if (players.length === 0) {
     avatarChoice = { skin: SKIN_COLORS[0], shirt: CLOTHES_COLORS[4], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
   }
@@ -1297,8 +1374,7 @@ function init() {
   if (players.length === 0) {
     openDrawer('manage');
   }
-  // Save on tab close as a belt-and-suspenders for persistence
-  window.addEventListener('beforeunload', () => { try { save(); } catch (_) {} });
+  // Local store persists synchronously on every mutation; no beforeunload save needed.
 
   // Global delegated click handler — single source of truth
   document.body.addEventListener('click', e => {
@@ -1391,10 +1467,9 @@ function init() {
   });
 
   // Active select
-  document.body.addEventListener('change', e => {
+  document.body.addEventListener('change', async e => {
     if (e.target.id === 'active-select') {
-      activePlayerId = e.target.value;
-      save();
+      await store.setActive(e.target.value);
       renderRoster();
       renderRecentLogs();
     }
