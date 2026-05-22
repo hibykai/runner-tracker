@@ -2,6 +2,9 @@
 Prompt.docx
 kanji-game.html
 
+# Local Claude Code settings (per-machine)
+.claude/settings.local.json
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

@@ -14,8 +14,13 @@
     padding: 0 18px; background: linear-gradient(90deg, #131a2e, #1a2342);
     border-bottom: 1px solid #2a3454;
   }
-  header h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; color: #ffd866; }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; color: #ffd866; display: inline-block; }
   header .tag { color: #8c97b5; font-size: 12px; margin-left: 12px; }
+  #header-menu { display: flex; align-items: center; gap: 10px; }
+  .hdr-btn { padding: 8px 14px; background: #243057; color: #e8ecf3; border: 1px solid #344371; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .hdr-btn:hover { background: #2e3c6e; border-color: #ffd866; }
+  .hdr-btn.primary { background: #ffd866; color: #0f1422; border-color: #ffd866; }
+  .hdr-btn.primary:hover { background: #ffe28b; }
 
   main { display: block; height: 100%; min-height: 0; }
 
@@ -57,7 +62,7 @@
   #map:active { cursor: grabbing; }
 
   #map-controls {
-    position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px;
+    position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; align-items: center;
     background: rgba(20,26,46,0.85); padding: 8px; border-radius: 8px; border: 1px solid #2a3454;
   }
   #map-controls button {
@@ -65,6 +70,15 @@
     background: #243057; color: #e8ecf3; border: 1px solid #344371; border-radius: 6px; cursor: pointer;
   }
   #map-controls button:hover { background: #2e3c6e; }
+  #zoom-slider {
+    -webkit-appearance: slider-vertical;
+    appearance: slider-vertical;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 24px; height: 140px; margin: 4px 0;
+    accent-color: #ffd866; cursor: pointer;
+  }
+  #zoom-label { font-size: 10px; color: #8c97b5; font-variant-numeric: tabular-nums; min-width: 32px; text-align: center; }
 
   #map-info {
     position: absolute; left: 12px; top: 12px;
@@ -218,6 +232,27 @@
   .detail.visible { opacity: 1; pointer-events: auto; }
 
   .empty-help { color: #6c7896; font-size: 12px; line-height: 1.5; padding: 12px; background: #1b2440; border-radius: 6px; border: 1px dashed #344371; }
+
+  /* Log entry rows in the Log Miles drawer */
+  .log-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #243057; }
+  .log-row .log-date { flex: 1; color: #e8ecf3; }
+  .log-row .log-miles { color: #ffd866; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .log-row .log-act { background: transparent; border: none; cursor: pointer; padding: 4px 6px; font-size: 14px; line-height: 1; border-radius: 4px; }
+  .log-row .log-act.edit { color: #8c97b5; }
+  .log-row .log-act.edit:hover { color: #ffd866; background: #243057; }
+  .log-row .log-act.del { color: #ff6b6b; }
+  .log-row .log-act.del:hover { color: #ff9999; background: #243057; }
+  .log-row.editing { background: rgba(255,216,102,0.05); padding: 8px 4px; gap: 6px; }
+  .log-row.editing input[type="date"], .log-row.editing input[type="number"] {
+    background: #0f1422; color: #e8ecf3; border: 1px solid #344371; border-radius: 4px;
+    padding: 5px 6px; font-size: 12px; font-family: inherit;
+  }
+  .log-row.editing input[type="date"] { flex: 1; min-width: 0; }
+  .log-row.editing input[type="number"] { width: 64px; }
+  .log-row.editing .log-act.save { color: #7ee787; }
+  .log-row.editing .log-act.save:hover { color: #a9f3b3; background: #243057; }
+  .log-row.editing .log-act.cancel { color: #ff6b6b; }
+  .log-row.editing .log-act.cancel:hover { color: #ff9999; background: #243057; }
 </style>
 </head>
 <body>
@@ -227,12 +262,16 @@
       <h1>COAST TO COAST RUN</h1>
       <span class="tag">Santa Monica, CA &rarr; New York, NY &middot; 2,790 mi</span>
     </div>
-    <div style="font-size:12px;color:#8c97b5;">Year <span id="year-label"></span></div>
+    <nav id="header-menu">
+      <button class="hdr-btn primary" id="hdr-log">🏃 Log Miles</button>
+      <button class="hdr-btn" id="hdr-manage">👥 Manage Players</button>
+      <span style="font-size:12px;color:#8c97b5;margin-left:10px;">Year <span id="year-label"></span></span>
+    </nav>
   </header>
 
   <main>
     <div id="map-wrap">
-      <svg id="map" viewBox="0 0 1600 800" preserveAspectRatio="xMidYMid meet"></svg>
+      <svg id="map" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet"></svg>
       <div id="map-info">
         <b>How to play</b><br>
         Add a player, customize their avatar, then log running miles with a date.
@@ -241,6 +280,8 @@
       </div>
       <div id="map-controls">
         <button id="zoom-in" title="Zoom in">+</button>
+        <input type="range" id="zoom-slider" min="0" max="100" value="0" step="1" title="Zoom level" orient="vertical">
+        <span id="zoom-label">1.0×</span>
         <button id="zoom-out" title="Zoom out">&minus;</button>
         <button id="zoom-reset" title="Reset view">&#8634;</button>
       </div>
@@ -361,20 +402,20 @@ const FINISH_MILES = ROUTE[ROUTE.length - 1].mile;
 const STATES_LL = [
   { abbr:"WA", name:"Washington",     poly:[[-124.7,48.5],[-124.5,47.5],[-123.7,46.7],[-123.0,46.15],[-117.0,46.0],[-117.0,49.0],[-122.8,49.0],[-123.2,48.5],[-122.5,48.0],[-122.0,48.4],[-122.5,48.6],[-124.7,48.5]], label:[-120.5,47.4] },
   { abbr:"OR", name:"Oregon",         poly:[[-124.5,46.2],[-123.7,46.15],[-117.0,46.0],[-117.0,42.0],[-124.4,42.0],[-124.5,46.2]], label:[-120.5,44.0] },
-  { abbr:"CA", name:"California",     poly:[[-124.4,42.0],[-124.0,40.0],[-123.7,38.9],[-122.5,37.5],[-121.5,36.6],[-120.5,35.3],[-118.5,34.0],[-117.1,32.7],[-114.6,32.7],[-114.6,34.8],[-118.5,38.0],[-119.5,38.7],[-120.0,42.0],[-124.4,42.0]], label:[-120.0,37.0] },
+  { abbr:"CA", name:"California",     poly:[[-124.4,42.0],[-124.0,40.0],[-123.7,38.9],[-122.5,37.5],[-121.5,36.6],[-120.5,35.3],[-118.5,34.0],[-117.1,32.7],[-114.6,32.7],[-114.6,34.8],[-120.0,39.0],[-120.0,42.0],[-124.4,42.0]], label:[-120.0,37.0] },
   { abbr:"ID", name:"Idaho",          poly:[[-117.0,49.0],[-116.05,49.0],[-114.0,46.6],[-111.05,44.5],[-111.05,42.0],[-114.5,42.0],[-116.7,44.5],[-117.0,46.0],[-117.0,49.0]], label:[-114.5,44.5] },
-  { abbr:"NV", name:"Nevada",         poly:[[-120.0,42.0],[-119.5,38.7],[-118.5,38.0],[-114.6,36.0],[-114.04,37.0],[-114.04,42.0],[-120.0,42.0]], label:[-117.0,39.5] },
+  { abbr:"NV", name:"Nevada",         poly:[[-120.0,42.0],[-120.0,39.0],[-114.6,35.0],[-114.04,36.85],[-114.04,42.0],[-120.0,42.0]], label:[-117.0,39.5] },
   { abbr:"UT", name:"Utah",           poly:[[-114.04,42.0],[-111.05,42.0],[-111.05,41.0],[-109.05,41.0],[-109.05,37.0],[-114.04,37.0],[-114.04,42.0]], label:[-111.5,39.5] },
-  { abbr:"AZ", name:"Arizona",        poly:[[-114.6,32.7],[-114.6,34.8],[-114.04,36.0],[-114.04,37.0],[-109.05,37.0],[-109.05,31.33],[-114.6,32.5],[-114.6,32.7]], label:[-111.5,34.3] },
+  { abbr:"AZ", name:"Arizona",        poly:[[-114.6,32.7],[-114.6,34.8],[-114.04,36.85],[-114.04,37.0],[-109.05,37.0],[-109.05,31.33],[-114.6,32.5],[-114.6,32.7]], label:[-111.5,34.3] },
   { abbr:"MT", name:"Montana",        poly:[[-116.05,49.0],[-104.04,49.0],[-104.04,45.0],[-111.05,45.0],[-111.05,44.5],[-114.0,46.6],[-116.05,49.0]], label:[-110.0,47.0] },
   { abbr:"WY", name:"Wyoming",        poly:[[-111.05,45.0],[-111.05,41.0],[-104.05,41.0],[-104.05,45.0],[-111.05,45.0]], label:[-107.5,43.0] },
   { abbr:"CO", name:"Colorado",       poly:[[-109.05,41.0],[-109.05,37.0],[-102.05,37.0],[-102.05,41.0],[-109.05,41.0]], label:[-105.5,39.0] },
-  { abbr:"NM", name:"New Mexico",     poly:[[-109.05,37.0],[-109.05,31.33],[-106.6,31.78],[-103.0,32.0],[-103.0,36.5],[-103.05,37.0],[-109.05,37.0]], label:[-106.0,34.5] },
+  { abbr:"NM", name:"New Mexico",     poly:[[-109.05,37.0],[-109.05,31.33],[-106.6,31.78],[-103.0,32.0],[-103.0,37.0],[-109.05,37.0]], label:[-106.0,34.5] },
   { abbr:"ND", name:"North Dakota",   poly:[[-104.05,49.0],[-104.05,45.94],[-96.55,45.94],[-96.55,49.0],[-104.05,49.0]], label:[-100.3,47.5] },
   { abbr:"SD", name:"South Dakota",   poly:[[-104.05,45.94],[-104.05,43.0],[-96.45,43.0],[-96.55,45.94],[-104.05,45.94]], label:[-100.3,44.5] },
   { abbr:"NE", name:"Nebraska",       poly:[[-104.05,43.0],[-104.05,41.0],[-95.78,40.0],[-95.4,40.0],[-95.65,42.8],[-96.45,43.0],[-104.05,43.0]], label:[-100.0,41.6] },
   { abbr:"KS", name:"Kansas",         poly:[[-102.05,40.0],[-102.05,37.0],[-94.6,37.0],[-94.6,40.0],[-102.05,40.0]], label:[-98.3,38.5] },
-  { abbr:"OK", name:"Oklahoma",       poly:[[-103.0,36.5],[-103.0,34.5],[-100.0,34.5],[-99.7,34.0],[-97.5,33.85],[-94.4,33.85],[-94.4,37.0],[-103.0,37.0],[-103.0,36.5]], label:[-98.5,35.6] },
+  { abbr:"OK", name:"Oklahoma",       poly:[[-103.0,37.0],[-103.0,36.5],[-100.0,36.5],[-100.0,34.5],[-99.7,34.0],[-97.5,33.85],[-94.4,33.85],[-94.4,37.0],[-103.0,37.0]], label:[-98.5,35.6] },
   { abbr:"TX", name:"Texas",          poly:[[-103.0,36.5],[-100.0,36.5],[-100.0,34.5],[-99.7,34.0],[-97.5,33.85],[-94.4,33.85],[-94.0,33.0],[-93.85,31.0],[-93.85,29.7],[-95.0,28.9],[-97.0,28.0],[-97.5,26.1],[-99.1,26.4],[-100.7,28.0],[-103.0,28.9],[-104.6,29.6],[-104.5,30.6],[-106.6,31.78],[-103.0,32.0],[-103.0,36.5]], label:[-99.5,31.0] },
   { abbr:"MN", name:"Minnesota",      poly:[[-97.23,49.0],[-95.16,48.99],[-94.96,49.36],[-92.5,48.4],[-92.0,46.7],[-89.5,46.0],[-92.5,46.0],[-92.5,43.5],[-96.45,43.5],[-96.55,45.94],[-97.23,49.0]], label:[-94.5,46.5] },
   { abbr:"IA", name:"Iowa",           poly:[[-96.45,43.5],[-95.65,42.8],[-95.4,40.4],[-95.78,40.0],[-91.5,40.5],[-91.0,42.5],[-91.5,43.5],[-96.45,43.5]], label:[-93.5,42.0] },
@@ -386,7 +427,7 @@ const STATES_LL = [
   { abbr:"MI", name:"Michigan",       poly:[[-87.5,42.0],[-86.7,41.76],[-83.5,41.76],[-83.0,42.5],[-82.4,43.0],[-82.6,44.0],[-83.5,45.0],[-84.0,45.7],[-84.7,45.85],[-86.0,45.0],[-87.7,45.5],[-87.7,46.0],[-89.0,46.5],[-90.4,46.6],[-89.0,47.5],[-86.0,47.5],[-84.5,46.0],[-84.0,45.6],[-85.5,45.0],[-86.6,44.0],[-86.5,42.4],[-87.5,42.0]], label:[-85.0,44.5] },
   { abbr:"IN", name:"Indiana",        poly:[[-87.5,42.0],[-87.5,37.7],[-87.0,37.85],[-86.5,38.1],[-85.8,38.7],[-84.8,39.0],[-84.8,41.7],[-86.7,41.76],[-87.5,42.0]], label:[-86.2,40.0] },
   { abbr:"OH", name:"Ohio",           poly:[[-84.8,41.7],[-84.8,39.0],[-83.0,38.7],[-82.5,38.5],[-81.0,39.0],[-80.5,40.5],[-80.5,42.0],[-82.5,41.7],[-83.5,41.7],[-84.8,41.7]], label:[-82.7,40.3] },
-  { abbr:"KY", name:"Kentucky",       poly:[[-89.5,37.0],[-89.0,36.7],[-86.0,36.5],[-83.0,36.5],[-81.97,37.5],[-82.5,37.5],[-83.0,38.7],[-84.8,39.0],[-85.8,38.7],[-86.5,38.1],[-87.0,37.85],[-87.5,37.7],[-88.5,37.0],[-89.5,37.0]], label:[-85.5,37.6] },
+  { abbr:"KY", name:"Kentucky",       poly:[[-89.5,37.0],[-89.0,36.7],[-86.0,36.5],[-83.0,36.5],[-81.97,37.5],[-83.0,38.7],[-84.8,39.0],[-85.8,38.7],[-86.5,38.1],[-87.0,37.85],[-87.5,37.7],[-88.5,37.0],[-89.5,37.0]], label:[-85.5,37.6] },
   { abbr:"TN", name:"Tennessee",      poly:[[-90.3,35.0],[-89.7,36.0],[-89.0,36.7],[-86.0,36.5],[-83.0,36.5],[-83.7,35.3],[-85.5,35.0],[-88.0,35.0],[-90.3,35.0]], label:[-86.5,35.8] },
   { abbr:"MS", name:"Mississippi",    poly:[[-91.0,35.0],[-91.0,33.0],[-91.65,32.0],[-91.4,31.0],[-89.6,31.0],[-89.0,30.5],[-88.4,30.4],[-88.4,34.99],[-91.0,35.0]], label:[-89.7,32.7] },
   { abbr:"AL", name:"Alabama",        poly:[[-88.4,35.0],[-88.4,30.4],[-87.5,30.3],[-87.5,30.7],[-85.0,31.0],[-85.0,32.5],[-85.4,35.0],[-88.4,35.0]], label:[-86.7,32.8] },
@@ -448,9 +489,10 @@ const US_OUTLINE_LL = [
 const US_OUTLINE = US_OUTLINE_LL.map(([lon, lat]) => project(lon, lat));
 
 // State data
-let players = [];        // { id, name, skin, shirt, shorts, hat, totalMiles, logs: [{date, miles}] }
+let players = [];        // { id, name, skin, shirt, shorts, hat, logs: [{id, date, miles}] }
 let activePlayerId = null;
 let editingPlayerId = null;
+let editingLogId = null;
 let avatarChoice = { skin: SKIN_COLORS[0], shirt: CLOTHES_COLORS[4], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
 let selectedDate = todayISO();
 let mileInput = '';
@@ -477,6 +519,11 @@ function load() {
     const data = JSON.parse(raw);
     players = data.players || [];
     activePlayerId = data.activePlayerId || (players[0] && players[0].id) || null;
+    // Backfill log IDs so old logs without one can be edited/deleted
+    for (const p of players) {
+      if (!Array.isArray(p.logs)) p.logs = [];
+      for (const l of p.logs) if (!l.id) l.id = uid().replace('p_', 'l_');
+    }
   } catch (e) {
     console.warn('failed to load', e);
   }
@@ -606,13 +653,15 @@ function renderMap() {
 
   // Single land-mass backdrop — same color as states, fills any micro-gaps
   // between adjacent polygons so they read as one continuous land
-  html += `<path class="land-backdrop" d="${smoothPath(US_OUTLINE, 4)}"/>`;
+  const backdropPts = US_OUTLINE.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  html += `<polygon class="land-backdrop" points="${backdropPts}"/>`;
 
-  // Individual states — slight corner rounding for an organic look
+  // States — plain polygons with rounded stroke joins (no curve artifacts
+  // at concave corners; adjacent state borders meet cleanly)
   html += '<g id="states-layer">';
   for (const s of STATES) {
-    const d = smoothPath(s.ptsArr, 2);
-    html += `<path class="state" d="${d}" data-abbr="${s.abbr}"><title>${s.name}</title></path>`;
+    const ptsStr = s.ptsArr.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    html += `<polygon class="state" points="${ptsStr}" data-abbr="${s.abbr}"><title>${s.name}</title></polygon>`;
   }
   html += '</g>';
 
@@ -789,7 +838,10 @@ function renderLogSection() {
       <input type="number" id="miles-input" min="0" step="0.1" placeholder="e.g. 5.2" value="${mileInput}">
     </div>
     <button class="primary" id="log-miles-btn">Log Miles</button>
-    <div style="margin-top:12px;font-size:11px;color:#8c97b5;text-transform:uppercase;letter-spacing:0.4px;">Recent runs</div>
+    <div style="margin-top:12px;font-size:11px;color:#8c97b5;text-transform:uppercase;letter-spacing:0.4px;display:flex;justify-content:space-between;align-items:center;">
+      <span>All runs</span>
+      <span id="logs-total" style="color:#ffd866;font-weight:700;text-transform:none;letter-spacing:0;"></span>
+    </div>
     <div id="recent-logs" style="margin-top:6px;font-size:12px;"></div>
   `;
   renderRecentLogs();
@@ -799,17 +851,66 @@ function renderRecentLogs() {
   const el = document.getElementById('recent-logs');
   if (!el) return;
   const active = players.find(p => p.id === activePlayerId);
+  const totalEl = document.getElementById('logs-total');
   if (!active || active.logs.length === 0) {
     el.innerHTML = '<div style="color:#6c7896;padding:6px 0;">No runs yet.</div>';
+    if (totalEl) totalEl.textContent = '';
     return;
   }
-  const recent = [...active.logs].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5);
-  el.innerHTML = recent.map(l => `
-    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #243057;">
-      <span>${formatDate(l.date)}</span>
-      <span style="color:#ffd866;font-weight:600;">${Number(l.miles).toFixed(1)} mi</span>
-    </div>
-  `).join('');
+  const sorted = [...active.logs].sort((a,b) => b.date.localeCompare(a.date) || (b.id||'').localeCompare(a.id||''));
+  if (totalEl) totalEl.textContent = totalMiles(active).toFixed(1) + ' mi total';
+  el.innerHTML = sorted.map(l => renderLogRow(l)).join('');
+}
+
+function renderLogRow(l) {
+  if (l.id === editingLogId) {
+    return `<div class="log-row editing" data-log-id="${l.id}">
+      <input type="date" value="${l.date}" data-edit="date">
+      <input type="number" value="${l.miles}" step="0.1" min="0.1" data-edit="miles">
+      <button class="log-act save" data-log-action="save" data-log-id="${l.id}" title="Save">✓</button>
+      <button class="log-act cancel" data-log-action="cancel" data-log-id="${l.id}" title="Cancel">✕</button>
+    </div>`;
+  }
+  return `<div class="log-row" data-log-id="${l.id}">
+    <span class="log-date">${formatDate(l.date)}</span>
+    <span class="log-miles">${Number(l.miles).toFixed(1)} mi</span>
+    <button class="log-act edit" data-log-action="edit" data-log-id="${l.id}" title="Edit">✎</button>
+    <button class="log-act del" data-log-action="delete" data-log-id="${l.id}" title="Delete">✕</button>
+  </div>`;
+}
+
+function saveLogEdit(id) {
+  const player = players.find(p => p.id === activePlayerId);
+  if (!player) return;
+  const log = player.logs.find(l => l.id === id);
+  if (!log) return;
+  const row = document.querySelector(`.log-row[data-log-id="${id}"]`);
+  if (!row) return;
+  const date = row.querySelector('[data-edit="date"]').value;
+  const miles = parseFloat(row.querySelector('[data-edit="miles"]').value);
+  if (!date) { showToast('Pick a date'); return; }
+  if (!miles || miles <= 0) { showToast('Miles must be > 0'); return; }
+  log.date = date;
+  log.miles = miles;
+  editingLogId = null;
+  save();
+  renderRecentLogs();
+  renderLeaderboard();
+  updatePlayerOnMap(player);
+  showToast('Run updated');
+}
+
+function deleteLog(id) {
+  const player = players.find(p => p.id === activePlayerId);
+  if (!player) return;
+  if (!confirm('Delete this run?')) return;
+  player.logs = player.logs.filter(l => l.id !== id);
+  if (editingLogId === id) editingLogId = null;
+  save();
+  renderRecentLogs();
+  renderLeaderboard();
+  updatePlayerOnMap(player);
+  showToast('Run deleted');
 }
 
 function formatDate(iso) {
@@ -988,7 +1089,7 @@ function logMiles() {
   if (!miles || miles <= 0) { showToast('Enter miles > 0'); return; }
   const wasFinished = totalMiles(active) >= FINISH_MILES;
 
-  active.logs.push({ date: selectedDate, miles });
+  active.logs.push({ id: uid().replace('p_', 'l_'), date: selectedDate, miles });
   save();
   mileInput = '';
 
@@ -1108,10 +1209,24 @@ function renderDrawerAvatarPreview() {
 
 /* ======================= ZOOM/PAN ======================= */
 
+// Zoom mapping: slider value 0..100 → log-spaced zoom 1× .. ~15×
+// (log spacing means the slider feels linear at all zoom levels)
+const MAX_ZOOM = 15;
+function sliderToZoom(v) { return Math.pow(MAX_ZOOM, v / 100); }
+function zoomToSlider(z) { return 100 * Math.log(z) / Math.log(MAX_ZOOM); }
+function currentZoom() { return BASE_VIEW.w / viewBox.w; }
+function syncZoomSlider() {
+  const z = currentZoom();
+  const s = document.getElementById('zoom-slider');
+  const lbl = document.getElementById('zoom-label');
+  if (s) s.value = Math.max(0, Math.min(100, zoomToSlider(z)));
+  if (lbl) lbl.textContent = z.toFixed(1) + '×';
+}
+
 function setZoom(factor, cx, cy) {
   const newW = viewBox.w / factor;
   const newH = viewBox.h / factor;
-  const minW = 80, maxW = BASE_VIEW.w;
+  const minW = BASE_VIEW.w / MAX_ZOOM, maxW = BASE_VIEW.w;
   if (newW < minW || newW > maxW) return;
   // keep cx,cy fixed in viewport
   const rx = (cx - viewBox.x) / viewBox.w;
@@ -1121,10 +1236,28 @@ function setZoom(factor, cx, cy) {
   viewBox.w = newW;
   viewBox.h = newH;
   clampView();
+  syncZoomSlider();
+  renderMap();
+}
+// Direct zoom to a specific level around a center point (used by slider)
+function setZoomLevel(targetZoom, cx, cy) {
+  targetZoom = Math.max(1, Math.min(MAX_ZOOM, targetZoom));
+  const newW = BASE_VIEW.w / targetZoom;
+  const newH = BASE_VIEW.h / targetZoom;
+  if (cx === undefined) { cx = viewBox.x + viewBox.w / 2; cy = viewBox.y + viewBox.h / 2; }
+  const rx = (cx - viewBox.x) / viewBox.w;
+  const ry = (cy - viewBox.y) / viewBox.h;
+  viewBox.x = cx - rx * newW;
+  viewBox.y = cy - ry * newH;
+  viewBox.w = newW;
+  viewBox.h = newH;
+  clampView();
+  syncZoomSlider();
   renderMap();
 }
 function resetView() {
   viewBox = { ...BASE_VIEW };
+  syncZoomSlider();
   renderMap();
 }
 function clampView() {
@@ -1180,13 +1313,24 @@ function init() {
       return;
     }
 
-    // FAB buttons
-    if (e.target.closest('#fab-log')) { openDrawer('log'); return; }
-    if (e.target.closest('#fab-manage')) { openDrawer('manage'); return; }
+    // Menu buttons — header and FAB (both open the same drawers)
+    if (e.target.closest('#fab-log') || e.target.closest('#hdr-log')) { openDrawer('log'); return; }
+    if (e.target.closest('#fab-manage') || e.target.closest('#hdr-manage')) { openDrawer('manage'); return; }
     if (e.target.closest('[data-close-drawer]') || e.target.id === 'drawer-overlay') { closeDrawer(); return; }
 
     // Log Miles button (works in either sidebar or drawer)
     if (e.target.closest('#log-miles-btn')) { logMiles(); return; }
+
+    // Per-row edit/save/cancel/delete buttons in the log list
+    const logBtn = e.target.closest('[data-log-action]');
+    if (logBtn) {
+      const action = logBtn.dataset.logAction;
+      const id = logBtn.dataset.logId;
+      if (action === 'edit')   { editingLogId = id; renderRecentLogs(); return; }
+      if (action === 'cancel') { editingLogId = null; renderRecentLogs(); return; }
+      if (action === 'save')   { saveLogEdit(id); return; }
+      if (action === 'delete') { deleteLog(id); return; }
+    }
 
     // Save / cancel in drawer add-player form
     if (e.target.closest('#drawer-save-player')) { savePlayerFromDrawer(); return; }
@@ -1257,23 +1401,31 @@ function init() {
   });
   document.body.addEventListener('input', e => {
     if (e.target.id === 'miles-input') mileInput = e.target.value;
+    if (e.target.id === 'zoom-slider') {
+      const target = sliderToZoom(Number(e.target.value));
+      setZoomLevel(target);
+    }
   });
 
-  // Map zoom buttons
+  // Map zoom buttons — gentler increments than before (was 1.5×)
   document.getElementById('zoom-in').addEventListener('click', () => {
-    setZoom(1.5, viewBox.x + viewBox.w/2, viewBox.y + viewBox.h/2);
+    setZoom(1.25, viewBox.x + viewBox.w/2, viewBox.y + viewBox.h/2);
   });
   document.getElementById('zoom-out').addEventListener('click', () => {
-    setZoom(1/1.5, viewBox.x + viewBox.w/2, viewBox.y + viewBox.h/2);
+    setZoom(1/1.25, viewBox.x + viewBox.w/2, viewBox.y + viewBox.h/2);
   });
   document.getElementById('zoom-reset').addEventListener('click', resetView);
+  syncZoomSlider();
 
   // Wheel zoom
   const svg = document.getElementById('map');
   svg.addEventListener('wheel', e => {
     e.preventDefault();
     const pt = svgPoint(e);
-    const factor = e.deltaY < 0 ? 1.18 : 1/1.18;
+    // Gentle wheel zoom: ~7% per tick, scaled by deltaY magnitude (high-DPI
+    // mice tend to deliver smaller delta values)
+    const delta = Math.max(-100, Math.min(100, e.deltaY));
+    const factor = Math.pow(1.07, -delta / 100);
     setZoom(factor, pt.x, pt.y);
   }, { passive: false });
 
