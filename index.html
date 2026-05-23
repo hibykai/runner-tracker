@@ -941,7 +941,103 @@ class RemoteStore {
   }
   async setActive(id) { activePlayerId = id; /* per-browser only */ }
   async setFirstFinish(_memberId, _ts) { /* server trigger handles this */ }
-  subscribe(_handlers) { /* Phase 4: realtime postgres_changes subscription */ }
+
+  /* Realtime: subscribe to postgres_changes for this lobby. Handlers fire
+   * AFTER the local cache (players array) has been patched, so renderers
+   * can just re-read. Optimistic writes from this client are idempotent
+   * because rows are keyed by stable UUIDs (log.id, lobby_member.user_id). */
+  subscribe(handlers = {}) {
+    if (this._channel) return; // idempotent
+    this._handlers = handlers;
+    this._channel = this.client.channel(`lobby:${this.lobbyId}`)
+      .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'logs',
+            filter: `lobby_id=eq.${this.lobbyId}` },
+          (p) => this._onLogChange(p))
+      .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'lobby_members',
+            filter: `lobby_id=eq.${this.lobbyId}` },
+          (p) => this._onMemberChange(p))
+      .subscribe();
+  }
+  _onLogChange(payload) {
+    const { eventType, new: row, old: oldRow } = payload;
+    const userId = (row && row.user_id) || (oldRow && oldRow.user_id);
+    const player = players.find(p => p.id === userId);
+    if (!player) return;
+    if (eventType === 'INSERT') {
+      if (!player.logs.find(l => l.id === row.id)) {
+        player.logs.push({ id: row.id, date: row.date, miles: Number(row.miles) });
+      }
+    } else if (eventType === 'UPDATE') {
+      const log = player.logs.find(l => l.id === row.id);
+      if (log) { log.date = row.date; log.miles = Number(row.miles); }
+    } else if (eventType === 'DELETE') {
+      const i = player.logs.findIndex(l => l.id === (oldRow && oldRow.id));
+      if (i >= 0) player.logs.splice(i, 1);
+    }
+    if (this._handlers.onLogChange) this._handlers.onLogChange(player);
+  }
+  _onMemberChange(payload) {
+    const { eventType, new: row, old: oldRow } = payload;
+    if (eventType === 'INSERT') {
+      if (row.status === 'active' && !players.find(p => p.id === row.user_id)) {
+        players.push(this._memberRowToPlayer(row));
+      }
+    } else if (eventType === 'UPDATE') {
+      const player = players.find(p => p.id === row.user_id);
+      if (row.status === 'kicked') {
+        const i = players.findIndex(p => p.id === row.user_id);
+        if (i >= 0) players.splice(i, 1);
+        if (row.user_id === this.myUid) {
+          showToast('You have been removed from the lobby');
+          setTimeout(() => leaveLobby(), 800);
+        }
+      } else if (!player && row.status === 'active') {
+        players.push(this._memberRowToPlayer(row));
+      } else if (player) {
+        // Detect whether anything visible changed. Heartbeats (last_seen)
+        // fire every 30s per member — skipping the re-render in that case
+        // keeps a 5-player lobby from doing constant map redraws.
+        const significantChange = (
+          row.name   !== player.name   || row.skin   !== player.skin   ||
+          row.shirt  !== player.shirt  || row.shorts !== player.shorts ||
+          row.hat    !== player.hat    || row.role   !== player.role   ||
+          Boolean(row.first_finish) !== Boolean(player.firstFinish)
+        );
+        player.name = row.name; player.skin = row.skin; player.shirt = row.shirt;
+        player.shorts = row.shorts; player.hat = row.hat; player.role = row.role;
+        player.firstFinish = row.first_finish ? new Date(row.first_finish).getTime() : undefined;
+        player.lastSeen = row.last_seen ? new Date(row.last_seen).getTime() : player.lastSeen;
+        if (row.user_id === this.myUid) this.isAdmin = row.role === 'admin';
+        if (!significantChange) return;
+      }
+    } else if (eventType === 'DELETE') {
+      const i = players.findIndex(p => p.id === (oldRow && oldRow.user_id));
+      if (i >= 0) players.splice(i, 1);
+    }
+    if (this._handlers.onMemberChange) this._handlers.onMemberChange();
+  }
+  _memberRowToPlayer(row) {
+    return {
+      id: row.user_id,
+      name: row.name, skin: row.skin, shirt: row.shirt, shorts: row.shorts, hat: row.hat,
+      firstFinish: row.first_finish ? new Date(row.first_finish).getTime() : undefined,
+      role: row.role,
+      lastSeen: row.last_seen ? new Date(row.last_seen).getTime() : Date.now(),
+      logs: []
+    };
+  }
+  startHeartbeat() {
+    if (this._heartbeatTimer) return;
+    const beat = () => this.client.rpc('heartbeat', { p_lobby_id: this.lobbyId }).catch(()=>{});
+    beat(); // immediate
+    this._heartbeatTimer = setInterval(beat, 30000);
+  }
+  async dispose() {
+    if (this._heartbeatTimer) { clearInterval(this._heartbeatTimer); this._heartbeatTimer = null; }
+    if (this._channel) { try { await this._channel.unsubscribe(); } catch(_) {} this._channel = null; }
+  }
 }
 
 // `store` is swappable: LocalStore for solo mode, RemoteStore inside a lobby.
@@ -1106,6 +1202,9 @@ async function joinLobbyFromForm() {
 }
 
 async function mountRemoteStore(lobbyId, myUid, code) {
+  // Dispose the previous remote store (if any) before swapping
+  if (isRemoteMode()) await store.dispose();
+
   store = new RemoteStore(supabaseClient, lobbyId, myUid);
   try {
     await store.loadLobby();
@@ -1120,6 +1219,28 @@ async function mountRemoteStore(lobbyId, myUid, code) {
   document.getElementById('lobby-chip-name').textContent = store.lobbyName || '';
   document.getElementById('lobby-chip-code').textContent = store.lobbyCode || '';
   refreshAll();
+
+  // Attach realtime subscription + heartbeat. Realtime handlers patch the
+  // local cache themselves; the lambdas here trigger the visible re-render.
+  store.subscribe({
+    onLogChange: (player) => {
+      updatePlayerOnMap(player);
+      renderLeaderboard();
+      if (document.getElementById('drawer-log').classList.contains('open')) {
+        renderRecentLogs();
+      }
+    },
+    onMemberChange: () => {
+      // Member added/removed/avatar-changed → full map redraw is cheapest
+      // (player count or appearance may have changed)
+      renderMap();
+      renderLeaderboard();
+      if (document.getElementById('drawer-manage').classList.contains('open')) {
+        renderDrawerRoster();
+      }
+    }
+  });
+  store.startHeartbeat();
 }
 
 async function tryEnterLobbyByHash(code) {
@@ -1157,6 +1278,7 @@ async function redeemPassphrase() {
 }
 
 async function leaveLobby() {
+  if (isRemoteMode()) await store.dispose();
   store = new LocalStore();
   await store.loadLobby();
   document.body.classList.remove('in-lobby');
