@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <title>Coast to Coast Run</title>
+<!-- Supabase JS client (loaded synchronously so RemoteStore can construct
+     immediately). Multiplayer mode only activates if SUPABASE_URL is set
+     below; otherwise the app runs in pure-local solo mode. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f1422; color: #e8ecf3; overflow: hidden; }
@@ -233,6 +237,89 @@
 
   .empty-help { color: #6c7896; font-size: 12px; line-height: 1.5; padding: 12px; background: #1b2440; border-radius: 6px; border: 1px dashed #344371; }
 
+  /* =========================================================================
+   * Multiplayer screens — landing overlay, create-lobby, join-lobby, passphrase
+   * Reuse the dark-glass aesthetic of the drawers.
+   * =========================================================================*/
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(8,12,24,0.85);
+    z-index: 200; display: none; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #131a2e; border: 1px solid #344371; border-radius: 12px;
+    padding: 28px; max-width: 420px; width: 100%;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    max-height: calc(100vh - 40px); overflow-y: auto;
+  }
+  .modal h2 { margin: 0 0 6px; color: #ffd866; font-size: 18px; letter-spacing: 0.5px; }
+  .modal .subtitle { color: #8c97b5; font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+  .modal .action-stack { display: flex; flex-direction: column; gap: 10px; }
+  .modal .action-stack button { padding: 14px; font-size: 14px; }
+  .modal .secondary-link { background: transparent; border: none; color: #8c97b5; font-size: 12px; cursor: pointer; padding: 8px; text-align: center; }
+  .modal .secondary-link:hover { color: #ffd866; }
+
+  /* Lobby header chip — shown in header when in a lobby */
+  #lobby-chip {
+    display: none; align-items: center; gap: 8px;
+    background: #1b2440; border: 1px solid #344371; border-radius: 999px;
+    padding: 6px 12px; font-size: 12px;
+    cursor: pointer; transition: background 0.15s;
+  }
+  #lobby-chip:hover { background: #243057; border-color: #ffd866; }
+  #lobby-chip .lobby-code { color: #ffd866; font-weight: 700; font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 1px; }
+  #lobby-chip .lobby-name { color: #e8ecf3; }
+  #lobby-chip .copy-icon { color: #8c97b5; font-size: 14px; }
+  #lobby-chip.copied .copy-icon { color: #7ee787; }
+  body.in-lobby #lobby-chip { display: inline-flex; }
+
+  /* Hide certain solo-only UI when in a lobby */
+  body.in-lobby #active-select-wrap { display: none; }
+
+  /* Code input — large monospace boxes */
+  .code-input {
+    width: 100%; padding: 14px; background: #0f1422; border: 1px solid #344371;
+    color: #ffd866; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 22px; font-weight: 700; letter-spacing: 4px; text-align: center;
+    border-radius: 8px; text-transform: uppercase;
+  }
+  .code-input:focus { outline: none; border-color: #ffd866; }
+
+  /* Passphrase display — 4-word phrase shown once */
+  .passphrase-display {
+    background: #0f1422; border: 2px solid #ffd866; border-radius: 8px;
+    padding: 16px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 16px; color: #ffd866; text-align: center;
+    letter-spacing: 1px; line-height: 1.6; word-spacing: 8px;
+    margin: 12px 0;
+  }
+  .passphrase-warning {
+    color: #ff9d3a; font-size: 12px; line-height: 1.5;
+    padding: 10px; background: rgba(255,157,58,0.08); border-radius: 6px;
+    border-left: 3px solid #ff9d3a; margin-bottom: 16px;
+  }
+
+  /* Inline toggle for public/private */
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-top: 1px solid #243057;
+  }
+  .toggle-row label { color: #e8ecf3; font-size: 13px; }
+  .toggle-row .hint { color: #6c7896; font-size: 11px; margin-top: 2px; }
+  .toggle-switch {
+    width: 40px; height: 22px; background: #344371; border-radius: 22px;
+    position: relative; cursor: pointer; transition: background 0.15s;
+    border: none; padding: 0;
+  }
+  .toggle-switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 18px; height: 18px; background: #e8ecf3; border-radius: 50%;
+    transition: left 0.15s;
+  }
+  .toggle-switch.on { background: #ffd866; }
+  .toggle-switch.on::after { left: 20px; background: #0f1422; }
+
   /* Log entry rows in the Log Miles drawer */
   .log-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #243057; }
   .log-row .log-date { flex: 1; color: #e8ecf3; }
@@ -265,6 +352,11 @@
     <nav id="header-menu">
       <button class="hdr-btn primary" id="hdr-log">🏃 Log Miles</button>
       <button class="hdr-btn" id="hdr-manage">👥 Manage Players</button>
+      <span id="lobby-chip" title="Click to copy invite link">
+        <span class="lobby-name" id="lobby-chip-name"></span>
+        <span class="lobby-code" id="lobby-chip-code"></span>
+        <span class="copy-icon">⧉</span>
+      </span>
       <span style="font-size:12px;color:#8c97b5;margin-left:10px;">Year <span id="year-label"></span></span>
     </nav>
   </header>
@@ -314,6 +406,113 @@
   <div id="drawer-manage-body"></div>
 </aside>
 
+<!-- ===== Multiplayer modals ===== -->
+<div class="modal-overlay" id="landing-modal">
+  <div class="modal">
+    <h2>Coast to Coast Run</h2>
+    <div class="subtitle">Race your friends across the country, one mile at a time. Pick how you want to play.</div>
+    <div class="action-stack">
+      <button class="primary" id="landing-solo">🏃 Play solo</button>
+      <button class="hdr-btn primary" id="landing-create" style="background:#3a82f7;color:#fff;border-color:#3a82f7;">✨ Create a lobby</button>
+      <button class="hdr-btn" id="landing-join">🔑 Join with a code</button>
+    </div>
+    <button class="secondary-link" id="landing-redeem" style="margin-top:8px;display:none;">I have a recovery passphrase</button>
+    <div id="landing-mp-disabled" style="display:none;margin-top:14px;padding:10px;background:#1b2440;border-radius:6px;font-size:11px;color:#8c97b5;line-height:1.5;">
+      Multiplayer is not configured. Edit <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> in <code>index.html</code> to enable it, then refresh. See <code>supabase/migrations/0001_init.sql</code> for setup.
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="create-modal">
+  <div class="modal">
+    <h2>Create a lobby</h2>
+    <div class="subtitle">You'll be the admin. Share the join code with your friends.</div>
+    <div class="field">
+      <label>Lobby name</label>
+      <input type="text" id="create-lobby-name" placeholder="e.g. Smith Family Trip" maxlength="40">
+    </div>
+    <div class="field">
+      <label>Your name</label>
+      <input type="text" id="create-player-name" placeholder="Player name" maxlength="20">
+    </div>
+    <div class="avatar-preview" style="margin-bottom:6px;"><svg id="create-avatar-preview" viewBox="0 0 60 80" style="width:80px;height:100px;background:#1b2440;border-radius:8px;padding:4px;"></svg></div>
+    <div class="field"><label>Skin</label><div class="swatches" id="create-skin-swatches"></div></div>
+    <div class="field"><label>Shirt</label><div class="swatches" id="create-shirt-swatches"></div></div>
+    <div class="field"><label>Shorts</label><div class="swatches" id="create-shorts-swatches"></div></div>
+    <div class="field"><label>Hat</label><div class="swatches" id="create-hat-swatches"></div></div>
+    <div class="toggle-row">
+      <div>
+        <label>Private lobby</label>
+        <div class="hint">Only people with the code can join.</div>
+      </div>
+      <button type="button" class="toggle-switch on" id="create-private-toggle" aria-pressed="true"></button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="hdr-btn" id="create-cancel" style="flex:1;">Cancel</button>
+      <button class="hdr-btn primary" id="create-submit" style="flex:1;">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="join-modal">
+  <div class="modal">
+    <h2>Join a lobby</h2>
+    <div class="subtitle">Enter the 6-character code your friend shared.</div>
+    <div class="field">
+      <label>Lobby code</label>
+      <input class="code-input" id="join-code-input" maxlength="6" placeholder="XXXXXX" autocapitalize="characters">
+    </div>
+    <div class="field">
+      <label>Your name</label>
+      <input type="text" id="join-player-name" placeholder="Player name" maxlength="20">
+    </div>
+    <div class="avatar-preview" style="margin-bottom:6px;"><svg id="join-avatar-preview" viewBox="0 0 60 80" style="width:80px;height:100px;background:#1b2440;border-radius:8px;padding:4px;"></svg></div>
+    <div class="field"><label>Skin</label><div class="swatches" id="join-skin-swatches"></div></div>
+    <div class="field"><label>Shirt</label><div class="swatches" id="join-shirt-swatches"></div></div>
+    <div class="field"><label>Shorts</label><div class="swatches" id="join-shorts-swatches"></div></div>
+    <div class="field"><label>Hat</label><div class="swatches" id="join-hat-swatches"></div></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="hdr-btn" id="join-cancel" style="flex:1;">Cancel</button>
+      <button class="hdr-btn primary" id="join-submit" style="flex:1;">Join</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="passphrase-modal">
+  <div class="modal">
+    <h2>Save your recovery passphrase</h2>
+    <div class="passphrase-warning">
+      <b>Write this down NOW.</b> This is shown only once. If you clear browser
+      storage or switch computers, you'll need this passphrase to recover your
+      admin role.
+    </div>
+    <div class="passphrase-display" id="passphrase-display"></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <button class="hdr-btn" id="passphrase-copy" style="flex:1;">📋 Copy</button>
+    </div>
+    <div class="subtitle" style="margin:14px 0 8px;">Lobby created — share this link with your friends:</div>
+    <div class="passphrase-display" style="border-color:#3a82f7;color:#9ec5ff;font-size:13px;" id="passphrase-invite"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="hdr-btn primary" id="passphrase-continue" style="flex:1;">I've saved it — continue</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="redeem-modal">
+  <div class="modal">
+    <h2>Recover admin role</h2>
+    <div class="subtitle">Paste the 4-word passphrase that was shown when you created the lobby.</div>
+    <div class="field">
+      <label>Passphrase</label>
+      <input type="text" id="redeem-input" placeholder="four-words-go-here">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="hdr-btn" id="redeem-cancel" style="flex:1;">Cancel</button>
+      <button class="hdr-btn primary" id="redeem-submit" style="flex:1;">Recover</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <div id="winner-banner">
   <h2 id="winner-name">Winner!</h2>
@@ -325,6 +524,26 @@
 /* ======================= STATE & CONSTANTS ======================= */
 
 const STORAGE_KEY = 'c2c_run_v1';
+
+/* ============ MULTIPLAYER CONFIG ============
+ * Fill these in to enable multiplayer. With the placeholder URL, the app
+ * stays in solo mode (LocalStore) regardless of URL hash — useful when
+ * opening index.html via file:// for offline play.
+ *
+ * Setup:
+ *   1. Create a free Supabase project at https://supabase.com
+ *   2. Authentication → Sign In / Up → enable "Anonymous Sign-Ins"
+ *   3. SQL Editor → paste supabase/migrations/0001_init.sql → Run
+ *   4. Settings → API: copy "Project URL" and "anon public" key below
+ *
+ * The anon key is meant to be public — RLS policies enforce all access.
+ */
+const SUPABASE_URL      = 'YOUR_SUPABASE_URL_HERE';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';
+const MULTIPLAYER_ENABLED = SUPABASE_URL.startsWith('https://') && typeof window.supabase !== 'undefined';
+const supabaseClient = MULTIPLAYER_ENABLED
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } })
+  : null;
 
 const SKIN_COLORS = ['#f4d4b0', '#e6b994', '#c89570', '#a47148', '#7a4d2c', '#4a2f1a'];
 const CLOTHES_COLORS = ['#e74c3c', '#f39c12', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#ec407a', '#ffffff', '#34495e'];
@@ -612,12 +831,339 @@ class LocalStore {
   subscribe(_handlers) { /* no-op for local store */ }
 }
 
-/* RemoteStore — implemented in Phase 3 (Supabase). Mirrors LocalStore's API. */
+/* RemoteStore — Supabase-backed mirror of LocalStore for multiplayer lobbies.
+ * One instance per active lobby. The caller's auth.uid() is `myUid`; in a
+ * lobby you can only mutate your own member row and your own log rows
+ * (RLS enforces this). Other players' rows arrive via the realtime
+ * subscription (Phase 4) — for now, a manual refresh re-pulls. */
 class RemoteStore {
-  constructor() { throw new Error('RemoteStore not implemented yet (Phase 3)'); }
+  constructor(client, lobbyId, myUid) {
+    this.client = client;
+    this.lobbyId = lobbyId;
+    this.myUid = myUid;
+    this.lobbyCode = null;
+    this.lobbyName = null;
+    this.lobbyStatus = 'active';
+    this.lobbyFinishMiles = FINISH_MILES;
+    this.isAdmin = false;
+  }
+  async loadLobby() {
+    const { data: lobby, error: lerr } = await this.client
+      .from('lobbies')
+      .select('id, code, name, admin_user_id, is_private, status, finish_miles')
+      .eq('id', this.lobbyId).single();
+    if (lerr) throw lerr;
+    this.lobbyCode = lobby.code;
+    this.lobbyName = lobby.name;
+    this.lobbyStatus = lobby.status;
+    this.lobbyFinishMiles = lobby.finish_miles;
+    this.isAdmin = lobby.admin_user_id === this.myUid;
+
+    const { data: members, error: merr } = await this.client
+      .from('lobby_members')
+      .select('user_id, name, skin, shirt, shorts, hat, first_finish, role, status, last_seen')
+      .eq('lobby_id', this.lobbyId).eq('status', 'active');
+    if (merr) throw merr;
+
+    const { data: logRows, error: gerr } = await this.client
+      .from('logs')
+      .select('id, user_id, date, miles')
+      .eq('lobby_id', this.lobbyId);
+    if (gerr) throw gerr;
+
+    const byUid = new Map();
+    for (const m of members) {
+      byUid.set(m.user_id, {
+        id: m.user_id,
+        name: m.name, skin: m.skin, shirt: m.shirt, shorts: m.shorts, hat: m.hat,
+        firstFinish: m.first_finish ? new Date(m.first_finish).getTime() : undefined,
+        role: m.role,
+        lastSeen: m.last_seen ? new Date(m.last_seen).getTime() : Date.now(),
+        logs: []
+      });
+    }
+    for (const l of logRows) {
+      const p = byUid.get(l.user_id);
+      if (p) p.logs.push({ id: l.id, date: l.date, miles: Number(l.miles) });
+    }
+    players.length = 0;
+    for (const p of byUid.values()) players.push(p);
+    activePlayerId = this.myUid;
+    return { players, activePlayerId };
+  }
+  async upsertMember(member) {
+    // RLS: lobby_members_update_self — only your own row.
+    // Adding a new member happens via the join_lobby RPC at landing time;
+    // it doesn't go through this method.
+    if (!member.id || member.id !== this.myUid) {
+      throw new Error('In multiplayer, you can only edit your own avatar.');
+    }
+    const patch = { name: member.name, skin: member.skin, shirt: member.shirt, shorts: member.shorts, hat: member.hat };
+    const { error } = await this.client
+      .from('lobby_members').update(patch)
+      .eq('lobby_id', this.lobbyId).eq('user_id', this.myUid);
+    if (error) throw error;
+    const local = players.find(p => p.id === this.myUid);
+    if (local) Object.assign(local, patch);
+    return member;
+  }
+  async removeMember(_id) {
+    throw new Error('In multiplayer, leaving the lobby = closing the tab. Admins kick others.');
+  }
+  async insertLog(memberId, log) {
+    if (memberId !== this.myUid) throw new Error('Can only log miles for yourself.');
+    const { data, error } = await this.client
+      .from('logs')
+      .insert({ lobby_id: this.lobbyId, user_id: this.myUid, date: log.date, miles: log.miles })
+      .select('id, date, miles').single();
+    if (error) throw error;
+    const player = players.find(p => p.id === this.myUid);
+    if (player) player.logs.push({ id: data.id, date: data.date, miles: Number(data.miles) });
+    return { id: data.id, date: data.date, miles: Number(data.miles) };
+  }
+  async updateLog(memberId, logId, patch) {
+    if (memberId !== this.myUid) throw new Error('Can only edit your own logs.');
+    const { error } = await this.client
+      .from('logs').update({ date: patch.date, miles: patch.miles })
+      .eq('id', logId).eq('user_id', this.myUid);
+    if (error) throw error;
+    const player = players.find(p => p.id === this.myUid);
+    if (player) { const log = player.logs.find(l => l.id === logId); if (log) Object.assign(log, patch); }
+    return patch;
+  }
+  async deleteLog(memberId, logId) {
+    if (memberId !== this.myUid) throw new Error('Can only delete your own logs.');
+    const { error } = await this.client
+      .from('logs').delete().eq('id', logId).eq('user_id', this.myUid);
+    if (error) throw error;
+    const player = players.find(p => p.id === this.myUid);
+    if (player) { const i = player.logs.findIndex(l => l.id === logId); if (i >= 0) player.logs.splice(i, 1); }
+  }
+  async setActive(id) { activePlayerId = id; /* per-browser only */ }
+  async setFirstFinish(_memberId, _ts) { /* server trigger handles this */ }
+  subscribe(_handlers) { /* Phase 4: realtime postgres_changes subscription */ }
 }
 
-const store = new LocalStore();
+// `store` is swappable: LocalStore for solo mode, RemoteStore inside a lobby.
+let store = new LocalStore();
+function isRemoteMode() { return store instanceof RemoteStore; }
+
+/* ======================= MULTIPLAYER FLOW =======================
+ * Routing model:
+ *   window.location.hash === '#/lobby/CODE'  → try to enter that lobby
+ *   anything else                            → solo (LocalStore) or landing
+ *
+ * The landing modal offers Play solo / Create lobby / Join. Solo is the
+ * legacy single-browser flow. Create/Join sign in anonymously to Supabase
+ * and call the create_lobby / join_lobby RPCs, then swap `store` to a
+ * RemoteStore instance and update the URL hash. Phase 4 will attach a
+ * realtime subscription on top of the RemoteStore. */
+
+// Small wordlist for the 4-word recovery passphrase. 64 words × 4 picks =
+// ~16M combinations; brute-force is impractical and the recovery flow is
+// only attempted by someone who already has the passphrase paper.
+const PASSPHRASE_WORDS = [
+  'amber','arrow','beacon','breeze','canyon','cedar','cipher','cobalt',
+  'coral','crater','delta','dune','ember','falcon','forest','glade',
+  'glow','granite','harbor','horizon','indigo','ivy','jade','journey',
+  'lantern','lark','lupine','marble','meadow','mist','mosaic','nebula',
+  'opal','orchid','otter','pebble','phoenix','pine','prism','quartz',
+  'raven','river','rune','sage','scarlet','sequoia','shore','silver',
+  'sparrow','spruce','star','sterling','sunset','swift','tide','timber',
+  'topaz','trail','tundra','valley','vine','willow','zephyr','zenith'
+];
+function generatePassphrase() {
+  const w = [];
+  for (let i = 0; i < 4; i++) {
+    const idx = Math.floor((window.crypto?.getRandomValues(new Uint32Array(1))[0] ?? Math.random() * 2**32) / 2**32 * PASSPHRASE_WORDS.length);
+    w.push(PASSPHRASE_WORDS[idx]);
+  }
+  return w.join('-');
+}
+
+function parseRoute() {
+  const m = window.location.hash.match(/^#\/lobby\/([A-Z0-9]{6})$/i);
+  if (m) return { type: 'lobby', code: m[1].toUpperCase() };
+  return { type: 'landing' };
+}
+function setLobbyUrl(code) {
+  const newHash = code ? `#/lobby/${code}` : '#/';
+  if (window.location.hash !== newHash) {
+    window.history.replaceState(null, '', newHash);
+  }
+}
+
+// Show/hide helpers — modals are mutually exclusive
+const ALL_MODALS = ['landing-modal','create-modal','join-modal','passphrase-modal','redeem-modal'];
+function showModal(id) {
+  for (const m of ALL_MODALS) document.getElementById(m).classList.toggle('open', m === id);
+}
+function hideAllModals() {
+  for (const m of ALL_MODALS) document.getElementById(m).classList.remove('open');
+}
+
+// Two independent avatar drafts for the create and join flows — they don't
+// share state with the in-game avatarChoice (used for editing existing players).
+const createAvatar = { skin: SKIN_COLORS[0], shirt: CLOTHES_COLORS[4], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
+const joinAvatar   = { skin: SKIN_COLORS[1], shirt: CLOTHES_COLORS[2], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
+
+function renderModalSwatches(prefix, draft) {
+  buildSwatch(prefix + '-skin-swatches',   SKIN_COLORS,    'skin',   draft);
+  buildSwatch(prefix + '-shirt-swatches',  CLOTHES_COLORS, 'shirt',  draft);
+  buildSwatch(prefix + '-shorts-swatches', CLOTHES_COLORS, 'shorts', draft);
+  buildSwatch(prefix + '-hat-swatches',    HAT_COLORS,     'hat',    draft);
+  const preview = document.getElementById(prefix + '-avatar-preview');
+  if (preview) preview.innerHTML = avatarSVG(draft);
+}
+
+function showLanding() {
+  if (!MULTIPLAYER_ENABLED) {
+    document.getElementById('landing-mp-disabled').style.display = 'block';
+    document.getElementById('landing-create').disabled = true;
+    document.getElementById('landing-join').disabled = true;
+    document.getElementById('landing-create').style.opacity = '0.4';
+    document.getElementById('landing-join').style.opacity = '0.4';
+  } else {
+    document.getElementById('landing-redeem').style.display = 'block';
+  }
+  showModal('landing-modal');
+}
+function showCreateLobby() {
+  renderModalSwatches('create', createAvatar);
+  showModal('create-modal');
+  setTimeout(() => document.getElementById('create-lobby-name').focus(), 50);
+}
+function showJoinScreen(prefilledCode) {
+  if (prefilledCode) {
+    document.getElementById('join-code-input').value = prefilledCode;
+  }
+  renderModalSwatches('join', joinAvatar);
+  showModal('join-modal');
+  setTimeout(() => {
+    const el = prefilledCode ? document.getElementById('join-player-name') : document.getElementById('join-code-input');
+    el?.focus();
+  }, 50);
+}
+
+async function ensureAnonAuth() {
+  if (!supabaseClient) throw new Error('Multiplayer not configured');
+  let { data: { user } } = await supabaseClient.auth.getUser();
+  if (user) return user;
+  const { data, error } = await supabaseClient.auth.signInAnonymously();
+  if (error) throw error;
+  return data.user;
+}
+
+async function createLobby() {
+  const name        = document.getElementById('create-lobby-name').value.trim();
+  const playerName  = document.getElementById('create-player-name').value.trim();
+  const isPrivate   = document.getElementById('create-private-toggle').classList.contains('on');
+  if (!name)        { showToast('Lobby name required'); return; }
+  if (!playerName)  { showToast('Your name required'); return; }
+  let user;
+  try { user = await ensureAnonAuth(); }
+  catch (e) { showToast('Auth failed: ' + e.message); return; }
+  const passphrase = generatePassphrase();
+  const { data, error } = await supabaseClient.rpc('create_lobby', {
+    p_name: name, p_is_private: isPrivate,
+    p_member_name: playerName,
+    p_skin: createAvatar.skin, p_shirt: createAvatar.shirt,
+    p_shorts: createAvatar.shorts, p_hat: createAvatar.hat,
+    p_passphrase: passphrase
+  });
+  if (error) { showToast('Create failed: ' + error.message); return; }
+  const { lobby_id: lobbyId, code } = data[0];
+  // Show the passphrase modal; on continue we navigate into the lobby.
+  document.getElementById('passphrase-display').textContent = passphrase;
+  document.getElementById('passphrase-invite').textContent =
+    window.location.origin + window.location.pathname + '#/lobby/' + code;
+  document.getElementById('passphrase-modal').dataset.lobbyId = lobbyId;
+  document.getElementById('passphrase-modal').dataset.lobbyCode = code;
+  showModal('passphrase-modal');
+}
+
+async function joinLobbyFromForm() {
+  const code       = document.getElementById('join-code-input').value.trim().toUpperCase();
+  const playerName = document.getElementById('join-player-name').value.trim();
+  if (!/^[A-Z0-9]{6}$/.test(code)) { showToast('Code must be 6 letters/digits'); return; }
+  if (!playerName)                 { showToast('Your name required'); return; }
+  let user;
+  try { user = await ensureAnonAuth(); }
+  catch (e) { showToast('Auth failed: ' + e.message); return; }
+  const { data: lobbyId, error } = await supabaseClient.rpc('join_lobby', {
+    p_code: code, p_member_name: playerName,
+    p_skin: joinAvatar.skin, p_shirt: joinAvatar.shirt,
+    p_shorts: joinAvatar.shorts, p_hat: joinAvatar.hat
+  });
+  if (error) {
+    if (/lobby not found/i.test(error.message)) showToast('Lobby not found — check the code');
+    else if (/removed/i.test(error.message))    showToast('You were removed from this lobby');
+    else                                        showToast('Join failed: ' + error.message);
+    return;
+  }
+  await mountRemoteStore(lobbyId, user.id, code);
+  hideAllModals();
+}
+
+async function mountRemoteStore(lobbyId, myUid, code) {
+  store = new RemoteStore(supabaseClient, lobbyId, myUid);
+  try {
+    await store.loadLobby();
+  } catch (e) {
+    showToast('Failed to load lobby: ' + (e.message || e));
+    store = new LocalStore();
+    await store.loadLobby();
+    return;
+  }
+  setLobbyUrl(store.lobbyCode || code);
+  document.body.classList.add('in-lobby');
+  document.getElementById('lobby-chip-name').textContent = store.lobbyName || '';
+  document.getElementById('lobby-chip-code').textContent = store.lobbyCode || '';
+  refreshAll();
+}
+
+async function tryEnterLobbyByHash(code) {
+  if (!MULTIPLAYER_ENABLED) {
+    showToast('Multiplayer not configured');
+    showLanding();
+    return;
+  }
+  let user;
+  try { user = await ensureAnonAuth(); }
+  catch (e) { showToast('Auth failed: ' + e.message); showLanding(); return; }
+  // The RLS policy on `lobbies` only returns rows you're a member of.
+  // If the SELECT returns nothing, you're not yet a member → show join form.
+  const { data: lobby } = await supabaseClient
+    .from('lobbies').select('id').eq('code', code).maybeSingle();
+  if (!lobby) {
+    showJoinScreen(code);
+    return;
+  }
+  await mountRemoteStore(lobby.id, user.id);
+}
+
+async function redeemPassphrase() {
+  const phrase = document.getElementById('redeem-input').value.trim().toLowerCase();
+  if (!phrase) { showToast('Enter a passphrase'); return; }
+  let user;
+  try { user = await ensureAnonAuth(); }
+  catch (e) { showToast('Auth failed: ' + e.message); return; }
+  const { data: lobbyId, error } = await supabaseClient.rpc('redeem_recovery_code', { p_passphrase: phrase });
+  if (error) { showToast(error.message || 'Recovery failed'); return; }
+  // Mount the recovered lobby
+  hideAllModals();
+  await mountRemoteStore(lobbyId, user.id);
+  showToast('Admin role recovered');
+}
+
+async function leaveLobby() {
+  store = new LocalStore();
+  await store.loadLobby();
+  document.body.classList.remove('in-lobby');
+  setLobbyUrl(null);
+  if (players.length === 0) showLanding();
+  else refreshAll();
+}
 
 function totalMiles(player) {
   return player.logs.reduce((s, l) => s + Number(l.miles), 0);
@@ -863,8 +1409,8 @@ function renderRoster() {
         <div class="name">${escapeXml(p.name)}</div>
         <div class="miles">${tm.toFixed(1)} mi · ${((tm/FINISH_MILES)*100).toFixed(1)}%</div>
       </div>
-      <button class="del" data-action="edit" title="Edit">✎</button>
-      <button class="del" data-action="delete" title="Remove">✕</button>
+      ${(!isRemoteMode() || p.id === activePlayerId) ? `<button class="del" data-action="edit" title="Edit">✎</button>` : ''}
+      ${(!isRemoteMode() || (p.id === activePlayerId && store.isAdmin)) ? `<button class="del" data-action="delete" title="${isRemoteMode() ? 'Leave lobby (not yet supported — close tab)' : 'Remove'}">✕</button>` : ''}
     </div>`;
   }).join('');
 }
@@ -904,7 +1450,7 @@ function renderLogSection() {
   if (!activePlayerId) activePlayerId = active.id;
 
   el.innerHTML = `
-    <div class="field">
+    <div class="field" id="active-select-wrap">
       <label>Active Player</label>
       <select id="active-select" style="width:100%;padding:8px 10px;background:#0f1422;color:#e8ecf3;border:1px solid #344371;border-radius:6px;font-size:14px;">
         ${players.map(p => `<option value="${p.id}" ${p.id===activePlayerId?'selected':''}>${escapeXml(p.name)}</option>`).join('')}
@@ -1054,13 +1600,20 @@ function renderSwatches() {
   buildSwatch('shorts-swatches', CLOTHES_COLORS, 'shorts');
   buildSwatch('hat-swatches', HAT_COLORS, 'hat');
 }
-function buildSwatch(id, colors, key) {
+function buildSwatch(id, colors, key, target) {
   const el = document.getElementById(id);
   if (!el) return;
+  // `target` is the draft object the swatches mutate (defaults to avatarChoice).
+  // The data-target attribute on each swatch tells the click handler which
+  // draft to update (encoded as id prefix: 'main', 'create', 'join').
+  const draft = target || avatarChoice;
+  const which = target === createAvatar ? 'create'
+              : target === joinAvatar   ? 'join'
+              : 'main';
   el.innerHTML = colors.map(c => {
-    const sel = avatarChoice[key] === c ? 'selected' : '';
+    const sel = draft[key] === c ? 'selected' : '';
     const bg = c === 'none' ? 'background:repeating-linear-gradient(45deg,#444 0 4px,#222 4px 8px);' : `background:${c};`;
-    return `<div class="sw ${sel}" data-key="${key}" data-color="${c}" style="${bg}" title="${c}"></div>`;
+    return `<div class="sw ${sel}" data-key="${key}" data-color="${c}" data-target="${which}" style="${bg}" title="${c}"></div>`;
   }).join('');
 }
 
@@ -1229,21 +1782,38 @@ function closeDrawer() {
 
 function renderManageDrawer() {
   const body = document.getElementById('drawer-manage-body');
+  // Remote mode: the player IS the user; "Add Player" doesn't apply.
+  // The form here becomes "Edit my avatar" pre-filled with the user's data.
+  const remote = isRemoteMode();
+  const me = remote ? players.find(p => p.id === activePlayerId) : null;
+  const formTitle = remote ? 'Edit My Avatar' : 'Add Player';
+  const submitLabel = remote ? 'Save Avatar' : 'Add Player';
+
+  // In remote mode, sync avatarChoice + the form name to the current user's
+  // values so the form is a true editor for their own member row.
+  if (remote && me) {
+    avatarChoice = { skin: me.skin, shirt: me.shirt, shorts: me.shorts, hat: me.hat };
+    editingPlayerId = me.id;
+  }
+
   body.innerHTML = `
     <section style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid #243057;">
-      <h2 style="font-size:13px;color:#ffd866;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">Players</h2>
+      <h2 style="font-size:13px;color:#ffd866;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">${remote ? 'Lobby Members' : 'Players'}</h2>
       <div id="drawer-roster" class="roster"></div>
+      ${remote && store.isAdmin ? '<div style="margin-top:10px;font-size:11px;color:#ffd866;">You are the admin. Admin controls coming in Phase 5.</div>' : ''}
+      ${remote && !store.isAdmin ? '<div style="margin-top:10px;font-size:11px;color:#8c97b5;">You are a member of this lobby.</div>' : ''}
     </section>
     <section>
-      <h2 id="drawer-add-title" style="font-size:13px;color:#ffd866;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">Add Player</h2>
+      <h2 id="drawer-add-title" style="font-size:13px;color:#ffd866;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">${formTitle}</h2>
       <div class="avatar-preview"><svg id="drawer-avatar-preview" viewBox="0 0 60 80"></svg></div>
-      <div class="field"><label>Name</label><input type="text" id="drawer-player-name" placeholder="Player name" maxlength="20"></div>
+      <div class="field"><label>Name</label><input type="text" id="drawer-player-name" placeholder="Player name" maxlength="20" value="${me ? escapeXml(me.name) : ''}"></div>
       <div class="field"><label>Skin</label><div class="swatches" id="drawer-skin-swatches"></div></div>
       <div class="field"><label>Shirt</label><div class="swatches" id="drawer-shirt-swatches"></div></div>
       <div class="field"><label>Shorts</label><div class="swatches" id="drawer-shorts-swatches"></div></div>
       <div class="field"><label>Hat</label><div class="swatches" id="drawer-hat-swatches"></div></div>
-      <button class="primary" id="drawer-save-player">Add Player</button>
+      <button class="primary" id="drawer-save-player">${submitLabel}</button>
       <button class="secondary" id="drawer-cancel-edit" style="width:100%;margin-top:6px;display:none;">Cancel</button>
+      ${remote ? '<button class="secondary" id="drawer-leave-lobby" style="width:100%;margin-top:10px;color:#ff6b6b;border-color:#ff6b6b;background:transparent;">Leave Lobby</button>' : ''}
     </section>
   `;
   renderDrawerSwatches();
@@ -1267,8 +1837,8 @@ function renderDrawerRoster() {
         <div class="name">${escapeXml(p.name)}</div>
         <div class="miles">${tm.toFixed(1)} mi · ${((tm/FINISH_MILES)*100).toFixed(1)}%</div>
       </div>
-      <button class="del" data-action="edit" title="Edit">✎</button>
-      <button class="del" data-action="delete" title="Remove">✕</button>
+      ${(!isRemoteMode() || p.id === activePlayerId) ? `<button class="del" data-action="edit" title="Edit">✎</button>` : ''}
+      ${(!isRemoteMode() || (p.id === activePlayerId && store.isAdmin)) ? `<button class="del" data-action="delete" title="${isRemoteMode() ? 'Leave lobby (not yet supported — close tab)' : 'Remove'}">✕</button>` : ''}
     </div>`;
   }).join('');
 }
@@ -1365,27 +1935,100 @@ async function init() {
     console.error(e.error || e.message);
     try { showToast('Error: ' + (e.message || 'see console')); } catch(_) {}
   });
+  // Always load local data first — even in lobby mode we use LocalStore as
+  // fallback if multiplayer fails to connect.
   await store.loadLobby();
   if (players.length === 0) {
     avatarChoice = { skin: SKIN_COLORS[0], shirt: CLOTHES_COLORS[4], shorts: CLOTHES_COLORS[8], hat: HAT_COLORS[0] };
   }
   refreshAll();
-  // Auto-open the manage drawer so first-time users can create their avatar
-  if (players.length === 0) {
-    openDrawer('manage');
+
+  // Routing: enter lobby if URL has #/lobby/CODE, else show landing or solo.
+  const route = parseRoute();
+  if (route.type === 'lobby') {
+    await tryEnterLobbyByHash(route.code);
+  } else if (players.length === 0) {
+    // Empty state — show landing (which offers solo + multiplayer paths)
+    if (MULTIPLAYER_ENABLED) showLanding();
+    else openDrawer('manage');
   }
+  // Otherwise: existing solo data is loaded and rendered; user can open the
+  // landing modal later by visiting #/ explicitly if they want multiplayer.
+
   // Local store persists synchronously on every mutation; no beforeunload save needed.
 
   // Global delegated click handler — single source of truth
   document.body.addEventListener('click', e => {
-    // Swatches
+    // Swatches — target one of three drafts based on data-target attribute
     const sw = e.target.closest('.sw');
     if (sw) {
-      avatarChoice[sw.dataset.key] = sw.dataset.color;
-      renderSwatches();
-      renderAvatarPreview();
-      renderDrawerSwatches();
-      renderDrawerAvatarPreview();
+      const which = sw.dataset.target || 'main';
+      const target = which === 'create' ? createAvatar : which === 'join' ? joinAvatar : avatarChoice;
+      target[sw.dataset.key] = sw.dataset.color;
+      if (which === 'create')      renderModalSwatches('create', createAvatar);
+      else if (which === 'join')   renderModalSwatches('join', joinAvatar);
+      else { renderSwatches(); renderAvatarPreview(); renderDrawerSwatches(); renderDrawerAvatarPreview(); }
+      return;
+    }
+
+    // Landing modal buttons
+    if (e.target.closest('#landing-solo'))   { hideAllModals(); if (players.length === 0) openDrawer('manage'); return; }
+    if (e.target.closest('#landing-create')) { showCreateLobby(); return; }
+    if (e.target.closest('#landing-join'))   { showJoinScreen(); return; }
+    if (e.target.closest('#landing-redeem')) { showModal('redeem-modal'); setTimeout(()=>document.getElementById('redeem-input').focus(),50); return; }
+
+    // Create-lobby modal
+    if (e.target.closest('#create-cancel'))         { showLanding(); return; }
+    if (e.target.closest('#create-submit'))         { createLobby(); return; }
+    if (e.target.closest('#create-private-toggle')) {
+      const t = document.getElementById('create-private-toggle');
+      t.classList.toggle('on');
+      t.setAttribute('aria-pressed', t.classList.contains('on'));
+      return;
+    }
+
+    // Join-lobby modal
+    if (e.target.closest('#join-cancel')) { showLanding(); return; }
+    if (e.target.closest('#join-submit')) { joinLobbyFromForm(); return; }
+
+    // Passphrase modal
+    if (e.target.closest('#passphrase-copy')) {
+      const text = document.getElementById('passphrase-display').textContent;
+      navigator.clipboard?.writeText(text).then(
+        () => showToast('Passphrase copied'),
+        () => showToast('Copy failed — write it down manually')
+      );
+      return;
+    }
+    if (e.target.closest('#passphrase-continue')) {
+      const m = document.getElementById('passphrase-modal');
+      const lobbyId = m.dataset.lobbyId, code = m.dataset.lobbyCode;
+      hideAllModals();
+      supabaseClient.auth.getUser().then(({ data: { user } }) => mountRemoteStore(lobbyId, user.id, code));
+      return;
+    }
+
+    // Redeem modal
+    if (e.target.closest('#redeem-cancel')) { showLanding(); return; }
+    if (e.target.closest('#redeem-submit')) { redeemPassphrase(); return; }
+
+    // Leave lobby (only present in remote mode)
+    if (e.target.closest('#drawer-leave-lobby')) {
+      if (confirm('Leave this lobby? You can rejoin later with the code.')) {
+        closeDrawer();
+        leaveLobby();
+      }
+      return;
+    }
+
+    // Lobby chip — click to copy invite link
+    if (e.target.closest('#lobby-chip')) {
+      const chip = document.getElementById('lobby-chip');
+      const url = window.location.origin + window.location.pathname + window.location.hash;
+      navigator.clipboard?.writeText(url).then(
+        () => { chip.classList.add('copied'); showToast('Invite link copied'); setTimeout(()=>chip.classList.remove('copied'), 1500); },
+        () => showToast('Copy failed')
+      );
       return;
     }
 
