@@ -127,6 +127,20 @@
   .roster-row .name { font-weight: 600; font-size: 13px; }
   .roster-row .miles { font-size: 11px; color: #8c97b5; }
   .roster-row .del { background: transparent; border: none; color: #ff6b6b; cursor: pointer; font-size: 16px; padding: 4px; }
+  .roster-row .kick-btn { color: #ff9d3a; font-size: 14px; }
+  .roster-row .kick-btn:hover { color: #ffbf75; }
+  .roster-row.offline { opacity: 0.55; }
+  .admin-badge { font-size: 11px; vertical-align: middle; }
+  .offline-badge { font-size: 10px; vertical-align: middle; color: #8c97b5; }
+
+  /* Admin controls section in the manage drawer */
+  .admin-section {
+    background: rgba(255,216,102,0.05); border: 1px solid #3a4778;
+    border-radius: 8px; padding: 12px; margin-bottom: 14px;
+  }
+  .admin-section .admin-title { font-size: 11px; font-weight: 700; color: #ffd866; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+  .admin-section .admin-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; }
+  .admin-section button { padding: 6px 10px; font-size: 12px; }
 
   .field { margin-bottom: 10px; }
   .field label { display: block; font-size: 11px; color: #8c97b5; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.4px; }
@@ -857,6 +871,7 @@ class RemoteStore {
     this.lobbyName = lobby.name;
     this.lobbyStatus = lobby.status;
     this.lobbyFinishMiles = lobby.finish_miles;
+    this.isPrivate = lobby.is_private;
     this.isAdmin = lobby.admin_user_id === this.myUid;
 
     const { data: members, error: merr } = await this.client
@@ -1277,6 +1292,55 @@ async function redeemPassphrase() {
   showToast('Admin role recovered');
 }
 
+/* Admin RPCs — gated client-side by `store.isAdmin`; RLS + server-side
+ * RPC checks enforce the real authorization. Each action surfaces success
+ * via a toast and updates local state from the RPC response. The realtime
+ * subscription will reconcile other browsers automatically. */
+
+async function adminKick(userId) {
+  if (!isRemoteMode() || !store.isAdmin) return;
+  const target = players.find(p => p.id === userId);
+  if (!target) return;
+  if (!confirm(`Kick ${target.name} from the lobby? They won't be able to rejoin with the same identity.`)) return;
+  const { error } = await supabaseClient.rpc('kick_member', {
+    p_lobby_id: store.lobbyId, p_target_user_id: userId
+  });
+  if (error) { showToast('Kick failed: ' + error.message); return; }
+  showToast(`${target.name} removed`);
+  // Realtime UPDATE on lobby_members will splice them locally too.
+}
+
+async function adminTogglePrivate() {
+  if (!isRemoteMode() || !store.isAdmin) return;
+  const { data, error } = await supabaseClient.rpc('toggle_private', { p_lobby_id: store.lobbyId });
+  if (error) { showToast('Toggle failed: ' + error.message); return; }
+  store.isPrivate = !!data;
+  showToast(store.isPrivate ? 'Lobby is now private' : 'Lobby is now public');
+  // Refresh the admin section so the toggle reflects the new state
+  renderManageDrawer();
+}
+
+async function adminRegenerateCode() {
+  if (!isRemoteMode() || !store.isAdmin) return;
+  if (!confirm('Regenerate the join code? Old invite links will stop working.')) return;
+  const { data, error } = await supabaseClient.rpc('regenerate_code', { p_lobby_id: store.lobbyId });
+  if (error) { showToast('Regenerate failed: ' + error.message); return; }
+  store.lobbyCode = data;
+  setLobbyUrl(data);
+  document.getElementById('lobby-chip-code').textContent = data;
+  renderManageDrawer();
+  showToast('New code: ' + data);
+}
+
+async function adminEndRace() {
+  if (!isRemoteMode() || !store.isAdmin) return;
+  if (!confirm('End the race? Members will still see the lobby and final standings, but new logs are no longer relevant.')) return;
+  const { error } = await supabaseClient.rpc('end_race', { p_lobby_id: store.lobbyId });
+  if (error) { showToast('End race failed: ' + error.message); return; }
+  store.lobbyStatus = 'ended';
+  showToast('Race ended');
+}
+
 async function leaveLobby() {
   if (isRemoteMode()) await store.dispose();
   store = new LocalStore();
@@ -1522,19 +1586,7 @@ function renderRoster() {
     el.innerHTML = '<div class="empty-help">No players yet. Customize an avatar below and click Add Player.</div>';
     return;
   }
-  el.innerHTML = players.map(p => {
-    const tm = totalMiles(p);
-    const isActive = p.id === activePlayerId;
-    return `<div class="roster-row ${isActive ? 'active' : ''}" data-id="${p.id}">
-      <svg class="mini-avatar" viewBox="0 0 60 80">${avatarSVG(p)}</svg>
-      <div class="info">
-        <div class="name">${escapeXml(p.name)}</div>
-        <div class="miles">${tm.toFixed(1)} mi · ${((tm/FINISH_MILES)*100).toFixed(1)}%</div>
-      </div>
-      ${(!isRemoteMode() || p.id === activePlayerId) ? `<button class="del" data-action="edit" title="Edit">✎</button>` : ''}
-      ${(!isRemoteMode() || (p.id === activePlayerId && store.isAdmin)) ? `<button class="del" data-action="delete" title="${isRemoteMode() ? 'Leave lobby (not yet supported — close tab)' : 'Remove'}">✕</button>` : ''}
-    </div>`;
-  }).join('');
+  el.innerHTML = players.map(p => rosterRowHTML(p)).join('');
 }
 
 function renderLeaderboard() {
@@ -1918,11 +1970,38 @@ function renderManageDrawer() {
     editingPlayerId = me.id;
   }
 
+  const adminControls = (remote && store.isAdmin) ? `
+    <div class="admin-section">
+      <div class="admin-title">👑 Admin Controls</div>
+      <div class="admin-row">
+        <div>
+          <div style="font-size:13px;color:#e8ecf3;">Private lobby</div>
+          <div style="font-size:11px;color:#8c97b5;">Only people with the code can join.</div>
+        </div>
+        <button type="button" class="toggle-switch ${store.isPrivate !== false ? 'on' : ''}" id="admin-toggle-private" aria-pressed="${store.isPrivate !== false}"></button>
+      </div>
+      <div class="admin-row">
+        <div>
+          <div style="font-size:13px;color:#e8ecf3;">Join code <span style="font-family:ui-monospace;color:#ffd866;letter-spacing:2px;">${store.lobbyCode || ''}</span></div>
+          <div style="font-size:11px;color:#8c97b5;">Regenerate to invalidate old links.</div>
+        </div>
+        <button class="hdr-btn" id="admin-regen-code">Regenerate</button>
+      </div>
+      <div class="admin-row">
+        <div>
+          <div style="font-size:13px;color:#e8ecf3;">End the race</div>
+          <div style="font-size:11px;color:#8c97b5;">Locks status for all members.</div>
+        </div>
+        <button class="hdr-btn" id="admin-end-race" style="background:#5a1f0a;color:#ff9d3a;border-color:#7a3a1a;">End race</button>
+      </div>
+    </div>
+  ` : '';
+
   body.innerHTML = `
+    ${adminControls}
     <section style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid #243057;">
       <h2 style="font-size:13px;color:#ffd866;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">${remote ? 'Lobby Members' : 'Players'}</h2>
       <div id="drawer-roster" class="roster"></div>
-      ${remote && store.isAdmin ? '<div style="margin-top:10px;font-size:11px;color:#ffd866;">You are the admin. Admin controls coming in Phase 5.</div>' : ''}
       ${remote && !store.isAdmin ? '<div style="margin-top:10px;font-size:11px;color:#8c97b5;">You are a member of this lobby.</div>' : ''}
     </section>
     <section>
@@ -1950,19 +2029,27 @@ function renderDrawerRoster() {
     el.innerHTML = '<div class="empty-help">No players yet.</div>';
     return;
   }
-  el.innerHTML = players.map(p => {
-    const tm = totalMiles(p);
-    const isActive = p.id === activePlayerId;
-    return `<div class="roster-row ${isActive ? 'active' : ''}" data-id="${p.id}">
+  el.innerHTML = players.map(p => rosterRowHTML(p)).join('');
+}
+
+// Single source for one row — used by renderRoster + renderDrawerRoster.
+function rosterRowHTML(p) {
+  const tm = totalMiles(p);
+  const isActive = p.id === activePlayerId;
+  const remote = isRemoteMode();
+  const meIsAdmin = remote && store.isAdmin;
+  const isAdminRow = remote && p.role === 'admin';
+  const offline = remote && p.lastSeen && (Date.now() - p.lastSeen > 120000);
+  return `<div class="roster-row ${isActive ? 'active' : ''}${offline ? ' offline' : ''}" data-id="${p.id}">
       <svg class="mini-avatar" viewBox="0 0 60 80">${avatarSVG(p)}</svg>
       <div class="info">
-        <div class="name">${escapeXml(p.name)}</div>
+        <div class="name">${escapeXml(p.name)}${isAdminRow ? ' <span class="admin-badge" title="Admin">👑</span>' : ''}${offline ? ' <span class="offline-badge" title="Offline">⏱</span>' : ''}</div>
         <div class="miles">${tm.toFixed(1)} mi · ${((tm/FINISH_MILES)*100).toFixed(1)}%</div>
       </div>
-      ${(!isRemoteMode() || p.id === activePlayerId) ? `<button class="del" data-action="edit" title="Edit">✎</button>` : ''}
-      ${(!isRemoteMode() || (p.id === activePlayerId && store.isAdmin)) ? `<button class="del" data-action="delete" title="${isRemoteMode() ? 'Leave lobby (not yet supported — close tab)' : 'Remove'}">✕</button>` : ''}
+      ${(!remote || p.id === activePlayerId) ? `<button class="del" data-action="edit" title="Edit">✎</button>` : ''}
+      ${!remote ? `<button class="del" data-action="delete" title="Remove">✕</button>` : ''}
+      ${remote && meIsAdmin && p.id !== activePlayerId ? `<button class="del kick-btn" data-action="kick" title="Kick from lobby">🚫</button>` : ''}
     </div>`;
-  }).join('');
 }
 
 function renderDrawerSwatches() {
@@ -2143,6 +2230,11 @@ async function init() {
       return;
     }
 
+    // Admin controls (only present when isRemoteMode && store.isAdmin)
+    if (e.target.closest('#admin-toggle-private')) { adminTogglePrivate(); return; }
+    if (e.target.closest('#admin-regen-code'))     { adminRegenerateCode(); return; }
+    if (e.target.closest('#admin-end-race'))       { adminEndRace(); return; }
+
     // Lobby chip — click to copy invite link
     if (e.target.closest('#lobby-chip')) {
       const chip = document.getElementById('lobby-chip');
@@ -2188,7 +2280,8 @@ async function init() {
       const actionEl = e.target.closest('[data-action]');
       const action = actionEl && actionEl.dataset.action;
       if (action === 'delete') { deletePlayer(id); return; }
-      if (action === 'edit') { startEditPlayer(id); return; }
+      if (action === 'kick')   { adminKick(id); return; }
+      if (action === 'edit')   { startEditPlayer(id); return; }
       selectPlayer(id);
       return;
     }
