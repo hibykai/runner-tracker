@@ -242,7 +242,8 @@
   .highway-shield-text { fill: #0f1422; font-size: 8px; font-weight: 800; text-anchor: middle; pointer-events: none; }
   .start-flag, .finish-flag { font-size: 16px; }
   .mile-marker { fill: #6c7896; font-size: 8px; pointer-events: none; user-select: none; }
-  .player-avatar { cursor: pointer; transition: transform 0.9s cubic-bezier(0.22,1,0.36,1); }
+  .player-avatar { cursor: pointer; transition: transform 0.9s cubic-bezier(0.22,1,0.36,1), opacity 0.4s; }
+  .player-avatar.offline { opacity: 0.45; }
   .player-name-tag { fill: #fff; font-size: 11px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: #0f1422; stroke-width: 3; pointer-events: none; user-select: none; transition: x 0.9s cubic-bezier(0.22,1,0.36,1), y 0.9s cubic-bezier(0.22,1,0.36,1); }
 
   /* Detail layer (visible when zoomed) */
@@ -927,14 +928,65 @@ class RemoteStore {
   }
   async insertLog(memberId, log) {
     if (memberId !== this.myUid) throw new Error('Can only log miles for yourself.');
-    const { data, error } = await this.client
-      .from('logs')
-      .insert({ lobby_id: this.lobbyId, user_id: this.myUid, date: log.date, miles: log.miles })
-      .select('id, date, miles').single();
-    if (error) throw error;
+    // Client-generated uuid so the optimistic local apply uses the same id
+    // as the eventual server row. Realtime echo then matches by id and skips
+    // re-inserting (see _onLogChange).
+    const id = (window.crypto?.randomUUID && window.crypto.randomUUID()) ||
+               ('local-' + Date.now() + '-' + Math.random().toString(36).slice(2,9));
+    const newLog = { id, date: log.date, miles: Number(log.miles) };
     const player = players.find(p => p.id === this.myUid);
-    if (player) player.logs.push({ id: data.id, date: data.date, miles: Number(data.miles) });
-    return { id: data.id, date: data.date, miles: Number(data.miles) };
+    if (player) player.logs.push(newLog);
+    // Attempt the server write. On failure, persist to a per-lobby retry
+    // queue and schedule a backoff retry — the user keeps moving on screen
+    // and their miles sync as soon as connectivity returns.
+    try {
+      const { error } = await this.client.from('logs').insert({
+        id, lobby_id: this.lobbyId, user_id: this.myUid, date: log.date, miles: log.miles
+      });
+      if (error) throw error;
+    } catch (e) {
+      this._queuePending({ id, lobby_id: this.lobbyId, user_id: this.myUid, date: log.date, miles: log.miles });
+      showToast('Saved locally — will sync when reconnected');
+    }
+    return newLog;
+  }
+  _pendingKey() { return `c2c_pending_${this.lobbyId}`; }
+  _queuePending(entry) {
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(this._pendingKey()) || '[]'); } catch (_) {}
+    queue.push(entry);
+    localStorage.setItem(this._pendingKey(), JSON.stringify(queue));
+    this._scheduleRetry(0);
+  }
+  _scheduleRetry(attempt) {
+    if (this._retryTimer) return;
+    const delay = Math.min(30000, 1000 * Math.pow(2, attempt));
+    this._retryTimer = setTimeout(() => this._drainPending(attempt), delay);
+  }
+  async _drainPending(attempt) {
+    this._retryTimer = null;
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(this._pendingKey()) || '[]'); } catch (_) {}
+    if (queue.length === 0) return;
+    let drained = 0;
+    for (const entry of [...queue]) {
+      try {
+        const { error } = await this.client.from('logs').insert(entry);
+        if (error) throw error;
+        queue = queue.filter(e => e.id !== entry.id);
+        localStorage.setItem(this._pendingKey(), JSON.stringify(queue));
+        drained++;
+      } catch (e) {
+        break; // network still down — back off
+      }
+    }
+    if (queue.length === 0) {
+      localStorage.removeItem(this._pendingKey());
+      if (drained > 0) showToast(`Synced ${drained} pending log${drained > 1 ? 's' : ''}`);
+    } else {
+      this._scheduleRetry(attempt + 1);
+      if (drained > 0) showToast(`Synced ${drained}, ${queue.length} pending`);
+    }
   }
   async updateLog(memberId, logId, patch) {
     if (memberId !== this.myUid) throw new Error('Can only edit your own logs.');
@@ -1011,19 +1063,24 @@ class RemoteStore {
       } else if (!player && row.status === 'active') {
         players.push(this._memberRowToPlayer(row));
       } else if (player) {
-        // Detect whether anything visible changed. Heartbeats (last_seen)
-        // fire every 30s per member — skipping the re-render in that case
-        // keeps a 5-player lobby from doing constant map redraws.
+        // Detect whether anything visible changed. Heartbeats (last_seen
+        // only) fire every 30s per member — skipping the re-render in that
+        // case keeps a busy lobby from doing constant map redraws.
+        // Online-status transitions DO count as visible (avatar dims/wakes).
+        const wasOffline = player.lastSeen && (Date.now() - player.lastSeen > 120000);
+        const newLastSeen = row.last_seen ? new Date(row.last_seen).getTime() : player.lastSeen;
+        const isOfflineNow = newLastSeen && (Date.now() - newLastSeen > 120000);
         const significantChange = (
           row.name   !== player.name   || row.skin   !== player.skin   ||
           row.shirt  !== player.shirt  || row.shorts !== player.shorts ||
           row.hat    !== player.hat    || row.role   !== player.role   ||
-          Boolean(row.first_finish) !== Boolean(player.firstFinish)
+          Boolean(row.first_finish) !== Boolean(player.firstFinish)   ||
+          wasOffline !== isOfflineNow
         );
         player.name = row.name; player.skin = row.skin; player.shirt = row.shirt;
         player.shorts = row.shorts; player.hat = row.hat; player.role = row.role;
         player.firstFinish = row.first_finish ? new Date(row.first_finish).getTime() : undefined;
-        player.lastSeen = row.last_seen ? new Date(row.last_seen).getTime() : player.lastSeen;
+        player.lastSeen = newLastSeen;
         if (row.user_id === this.myUid) this.isAdmin = row.role === 'admin';
         if (!significantChange) return;
       }
@@ -1049,8 +1106,16 @@ class RemoteStore {
     beat(); // immediate
     this._heartbeatTimer = setInterval(beat, 30000);
   }
+  drainPendingOnMount() {
+    // Kick off a drain immediately so leftover failed writes from a previous
+    // session try to sync as soon as we're reconnected.
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(this._pendingKey()) || '[]'); } catch (_) {}
+    if (queue.length > 0) this._drainPending(0);
+  }
   async dispose() {
     if (this._heartbeatTimer) { clearInterval(this._heartbeatTimer); this._heartbeatTimer = null; }
+    if (this._retryTimer)     { clearTimeout(this._retryTimer); this._retryTimer = null; }
     if (this._channel) { try { await this._channel.unsubscribe(); } catch(_) {} this._channel = null; }
   }
 }
@@ -1237,6 +1302,11 @@ async function mountRemoteStore(lobbyId, myUid, code) {
 
   // Attach realtime subscription + heartbeat. Realtime handlers patch the
   // local cache themselves; the lambdas here trigger the visible re-render.
+  // Drain any failed-writes queue from a previous session before subscribing,
+  // so the realtime echo of the now-synced rows is idempotent on top of the
+  // existing local cache.
+  store.drainPendingOnMount();
+
   store.subscribe({
     onLogChange: (player) => {
       updatePlayerOnMap(player);
@@ -1538,7 +1608,8 @@ function renderMap() {
     const tm = totalMiles(player);
     const pos = positionAtMile(tm);
     const { tx, ty, sc, h } = avatarTransform(pos, zoomScale);
-    html += `<g class="player-avatar" transform="translate(${tx},${ty}) scale(${sc})" data-player="${player.id}">${avatarSVG(player)}</g>`;
+    const offline = isRemoteMode() && player.lastSeen && (Date.now() - player.lastSeen > 120000);
+    html += `<g class="player-avatar${offline ? ' offline' : ''}" transform="translate(${tx},${ty}) scale(${sc})" data-player="${player.id}">${avatarSVG(player)}</g>`;
     html += `<text class="player-name-tag" data-player="${player.id}" x="${pos.x}" y="${pos.y - h - 6}" style="${zoomScale < 1.3 ? 'opacity:0;' : ''}">${escapeXml(player.name)}</text>`;
   }
   html += '</g>';
