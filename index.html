@@ -66,23 +66,33 @@
   #map:active { cursor: grabbing; }
 
   #map-controls {
-    position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; align-items: center;
-    background: rgba(20,26,46,0.85); padding: 8px; border-radius: 8px; border: 1px solid #2a3454;
+    position: absolute; left: 12px; bottom: 12px;
+    display: flex; flex-direction: row; align-items: center; gap: 6px;
+    background: rgba(20,26,46,0.85); padding: 6px 10px; border-radius: 8px; border: 1px solid #2a3454;
   }
   #map-controls button {
-    width: 36px; height: 36px; font-size: 16px; font-weight: 700;
+    width: 32px; height: 32px; font-size: 16px; font-weight: 700;
     background: #243057; color: #e8ecf3; border: 1px solid #344371; border-radius: 6px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
   }
   #map-controls button:hover { background: #2e3c6e; }
   #zoom-slider {
-    -webkit-appearance: slider-vertical;
-    appearance: slider-vertical;
-    writing-mode: vertical-lr;
-    direction: rtl;
-    width: 24px; height: 90px; margin: 2px 0;
+    -webkit-appearance: none;
+    appearance: none;
+    width: 140px; height: 6px; margin: 0 4px;
+    background: #344371; border-radius: 3px;
     accent-color: #ffd866; cursor: pointer;
   }
-  #zoom-label { font-size: 10px; color: #8c97b5; font-variant-numeric: tabular-nums; min-width: 32px; text-align: center; }
+  #zoom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%; background: #ffd866;
+    border: 2px solid #131a2e; cursor: pointer;
+  }
+  #zoom-slider::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; background: #ffd866;
+    border: 2px solid #131a2e; cursor: pointer; border: none;
+  }
+  #zoom-label { font-size: 11px; color: #8c97b5; font-variant-numeric: tabular-nums; min-width: 36px; text-align: center; }
 
   #map-info {
     position: absolute; left: 12px; top: 12px;
@@ -399,10 +409,10 @@
         <div style="margin-top:6px; color:#8c97b5;">Drag to pan &middot; scroll to zoom</div>
       </div>
       <div id="map-controls">
-        <button id="zoom-in" title="Zoom in">+</button>
-        <input type="range" id="zoom-slider" min="0" max="100" value="0" step="1" title="Zoom level" orient="vertical">
-        <span id="zoom-label">1.0×</span>
         <button id="zoom-out" title="Zoom out">&minus;</button>
+        <input type="range" id="zoom-slider" min="0" max="100" value="0" step="1" title="Drag to zoom">
+        <button id="zoom-in" title="Zoom in">+</button>
+        <span id="zoom-label">1.0×</span>
         <button id="zoom-reset" title="Reset view">&#8634;</button>
       </div>
       <div id="leaderboard">
