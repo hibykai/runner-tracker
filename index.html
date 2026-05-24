@@ -79,16 +79,24 @@
     appearance: slider-vertical;
     writing-mode: vertical-lr;
     direction: rtl;
-    width: 24px; height: 140px; margin: 4px 0;
+    width: 24px; height: 90px; margin: 2px 0;
     accent-color: #ffd866; cursor: pointer;
   }
   #zoom-label { font-size: 10px; color: #8c97b5; font-variant-numeric: tabular-nums; min-width: 32px; text-align: center; }
 
   #map-info {
     position: absolute; left: 12px; top: 12px;
-    background: rgba(20,26,46,0.85); padding: 10px 12px; border-radius: 8px; border: 1px solid #2a3454;
+    background: rgba(20,26,46,0.85); padding: 10px 28px 10px 12px; border-radius: 8px; border: 1px solid #2a3454;
     font-size: 12px; max-width: 260px; line-height: 1.5;
   }
+  #map-info-close {
+    position: absolute; top: 4px; right: 6px;
+    background: transparent; border: none; color: #8c97b5;
+    font-size: 16px; cursor: pointer; padding: 2px 6px; line-height: 1;
+  }
+  #map-info-close:hover { color: #ffd866; }
+  body.info-dismissed #map-info { display: none; }
+  body.in-lobby #map-info { display: none; }
   #map-info b { color: #ffd866; }
 
   /* Leaderboard */
@@ -384,6 +392,7 @@
     <div id="map-wrap">
       <svg id="map" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet"></svg>
       <div id="map-info">
+        <button id="map-info-close" title="Hide this tip">×</button>
         <b>How to play</b><br>
         Add a player, customize their avatar, then log running miles with a date.
         Each mile moves the avatar east along the route. First to NYC wins!
@@ -2223,6 +2232,11 @@ async function init() {
   // the placeholder — keeps the header clean for offline-only deploys.
   if (!MULTIPLAYER_ENABLED) document.body.classList.add('multiplayer-disabled');
 
+  // Restore "How to play" dismissal so the panel doesn't reappear on reload.
+  if (localStorage.getItem('c2c_info_dismissed') === '1') {
+    document.body.classList.add('info-dismissed');
+  }
+
   // Always load local data first — even in lobby mode we use LocalStore as
   // fallback if multiplayer fails to connect.
   await store.loadLobby();
@@ -2331,6 +2345,13 @@ async function init() {
     // 🌐 Multiplayer — opens the landing modal so users with existing solo
     // data can opt into Create / Join without clearing localStorage first.
     if (e.target.closest('#hdr-multiplayer')) { showLanding(); return; }
+
+    // Dismiss the "How to play" tooltip persistently
+    if (e.target.closest('#map-info-close')) {
+      document.body.classList.add('info-dismissed');
+      localStorage.setItem('c2c_info_dismissed', '1');
+      return;
+    }
     if (e.target.closest('[data-close-drawer]') || e.target.id === 'drawer-overlay') { closeDrawer(); return; }
 
     // Log Miles button (works in either sidebar or drawer)
