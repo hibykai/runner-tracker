@@ -1115,7 +1115,12 @@ class RemoteStore {
   }
   startHeartbeat() {
     if (this._heartbeatTimer) return;
-    const beat = () => this.client.rpc('heartbeat', { p_lobby_id: this.lobbyId }).catch(()=>{});
+    // Supabase's .rpc() returns a PostgrestBuilder, not a real Promise — it
+    // has a .then() but no .catch(). We have to await + try/catch instead.
+    const beat = async () => {
+      try { await this.client.rpc('heartbeat', { p_lobby_id: this.lobbyId }); }
+      catch (_) { /* offline / 401 / timeout — silently swallow */ }
+    };
     beat(); // immediate
     this._heartbeatTimer = setInterval(beat, 30000);
   }
@@ -2246,16 +2251,31 @@ async function init() {
   refreshAll();
 
   // Routing: enter lobby if URL has #/lobby/CODE, else show landing or solo.
-  const route = parseRoute();
-  if (route.type === 'lobby') {
-    await tryEnterLobbyByHash(route.code);
-  } else if (players.length === 0) {
-    // Empty state — show landing (which offers solo + multiplayer paths)
-    if (MULTIPLAYER_ENABLED) showLanding();
-    else openDrawer('manage');
+  // Wrap in try/catch so an unexpected failure here (network blip, Supabase
+  // SDK quirk, etc.) doesn't prevent the event listeners below from being
+  // attached — that previously bricked Log Miles / pan / zoom for the whole
+  // session.
+  try {
+    const route = parseRoute();
+    if (route.type === 'lobby') {
+      await tryEnterLobbyByHash(route.code);
+    } else if (players.length === 0) {
+      // Empty state — show landing (which offers solo + multiplayer paths)
+      if (MULTIPLAYER_ENABLED) showLanding();
+      else openDrawer('manage');
+    }
+    // Otherwise: existing solo data is loaded and rendered; user can open the
+    // landing modal later by visiting #/ explicitly if they want multiplayer.
+  } catch (err) {
+    console.error('Lobby routing failed:', err);
+    showToast('Could not load lobby: ' + (err.message || err));
+    // Fall back to LocalStore so the rest of the app stays usable
+    if (isRemoteMode()) { try { await store.dispose(); } catch (_) {} }
+    store = new LocalStore();
+    await store.loadLobby();
+    document.body.classList.remove('in-lobby');
+    refreshAll();
   }
-  // Otherwise: existing solo data is loaded and rendered; user can open the
-  // landing modal later by visiting #/ explicitly if they want multiplayer.
 
   // Local store persists synchronously on every mutation; no beforeunload save needed.
 
