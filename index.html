@@ -292,6 +292,8 @@
 
   /* Hide certain solo-only UI when in a lobby */
   body.in-lobby #active-select-wrap { display: none; }
+  body.in-lobby #hdr-multiplayer { display: none; }
+  body.multiplayer-disabled #hdr-multiplayer { display: none; }
 
   /* Code input — large monospace boxes */
   .code-input {
@@ -368,6 +370,7 @@
     <nav id="header-menu">
       <button class="hdr-btn primary" id="hdr-log">🏃 Log Miles</button>
       <button class="hdr-btn" id="hdr-manage">👥 Manage Players</button>
+      <button class="hdr-btn" id="hdr-multiplayer" title="Create or join an online lobby">🌐 Multiplayer</button>
       <span id="lobby-chip" title="Click to copy invite link">
         <span class="lobby-name" id="lobby-chip-name"></span>
         <span class="lobby-code" id="lobby-chip-code"></span>
@@ -2216,6 +2219,10 @@ async function init() {
     console.error(e.error || e.message);
     try { showToast('Error: ' + (e.message || 'see console')); } catch(_) {}
   });
+  // Hide the 🌐 Multiplayer header button when the Supabase config is still
+  // the placeholder — keeps the header clean for offline-only deploys.
+  if (!MULTIPLAYER_ENABLED) document.body.classList.add('multiplayer-disabled');
+
   // Always load local data first — even in lobby mode we use LocalStore as
   // fallback if multiplayer fails to connect.
   await store.loadLobby();
@@ -2321,6 +2328,9 @@ async function init() {
     // Menu buttons — header and FAB (both open the same drawers)
     if (e.target.closest('#fab-log') || e.target.closest('#hdr-log')) { openDrawer('log'); return; }
     if (e.target.closest('#fab-manage') || e.target.closest('#hdr-manage')) { openDrawer('manage'); return; }
+    // 🌐 Multiplayer — opens the landing modal so users with existing solo
+    // data can opt into Create / Join without clearing localStorage first.
+    if (e.target.closest('#hdr-multiplayer')) { showLanding(); return; }
     if (e.target.closest('[data-close-drawer]') || e.target.id === 'drawer-overlay') { closeDrawer(); return; }
 
     // Log Miles button (works in either sidebar or drawer)
